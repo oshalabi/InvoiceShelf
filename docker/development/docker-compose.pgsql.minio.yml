@@ -83,6 +83,7 @@ services:
 
   minio-init:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
       - minio
     entrypoint:
@@ -101,3 +102,4 @@ networks:
 
 volumes:
   invoiceshelf-dev-pgsql:
+  invoiceshelf-dev-minio:

@@ -193,3 +193,11 @@ test('create taxes', function () {
         'amount' => $tax['amount'],
     ]);
 });
+
+test('invoice notes preserve line breaks from editor paragraphs in pdf output', function () {
+    $invoice = Invoice::factory()->create([
+        'notes' => '<p>First line</p><p>Second line</p>',
+    ]);
+
+    expect($invoice->getNotes())->toContain('First line<br>Second line');
+});

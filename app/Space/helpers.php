@@ -49,7 +49,7 @@ function get_page_title($company_id)
 
     $routeName = Route::currentRouteName();
 
-    $defaultPageTitle = 'InvoiceShelf - Self Hosted Invoicing Platform';
+    $defaultPageTitle = 'ExactBalance Invoicing Platform';
 
     if ($routeName === 'customer.dashboard') {
         $pageTitle = CompanySetting::getSetting('customer_portal_page_title', $company_id);

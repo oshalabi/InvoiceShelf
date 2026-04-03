@@ -41,10 +41,11 @@ services:
     volumes:
       - invoiceshelf-dev-minio:/data
     networks:
-      - invoiceshelf-dev
+      - invoiceshelf
 
   minio-init:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
       - minio
     entrypoint:
@@ -56,8 +57,9 @@ services:
         done
         /usr/bin/mc mb --ignore-existing local/${MINIO_BUCKET:-invoiceshelf-local}
     networks:
-      - invoiceshelf-dev
+      - invoiceshelf
 networks:
   invoiceshelf:
 volumes:
   invoiceshelf_storage:
+  invoiceshelf-dev-minio:

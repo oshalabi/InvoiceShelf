@@ -68,6 +68,7 @@ services:
       - invoiceshelf-dev
   minio-init:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
       - minio
     entrypoint:
@@ -83,3 +84,6 @@ services:
 
 networks:
   invoiceshelf-dev:
+
+volumes:
+  invoiceshelf-dev-minio:

@@ -216,6 +216,7 @@
             font-size: 11px;
             line-height: 18px;
             color: #555555;
+            white-space: pre-line;
         }
 
         /* ===== FOOTER ===== */
