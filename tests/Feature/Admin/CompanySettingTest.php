@@ -111,6 +111,9 @@ test('update settings', function () {
         'ocr_expense_enabled' => 'YES',
         'ocr_confidence_threshold' => 0.85,
         'ocr_country_code' => 'NL',
+        'ocr_openrouter_enabled' => 'YES',
+        'ocr_auto_generate_templates_enabled' => 'YES',
+        'ocr_required_fields' => 'invoice_number,date,amount,currency_code',
     ];
 
     $response = postJson('/api/v1/company/settings', ['settings' => $settings]);
@@ -200,6 +203,9 @@ test('get notification email settings', function () {
         'ocr_expense_enabled',
         'ocr_confidence_threshold',
         'ocr_country_code',
+        'ocr_openrouter_enabled',
+        'ocr_auto_generate_templates_enabled',
+        'ocr_required_fields',
     ];
 
     $response = getJson('/api/v1/company/settings?'.http_build_query($data));

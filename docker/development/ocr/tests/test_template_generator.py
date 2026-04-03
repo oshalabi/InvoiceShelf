@@ -2,10 +2,13 @@ from pathlib import Path
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.template_generator import (
+    GeneratedTemplateDefinition,
     TemplateSpec,
+    default_ai_template_path,
     default_template_path,
     generate_starter_template_from_sample,
     suggest_keywords,
+    validate_ai_template_definition,
 )
 
 
@@ -31,6 +34,14 @@ def test_default_template_path_uses_next_available_name(tmp_path: Path) -> None:
     (supplier_directory / "template_1.yml").write_text("", encoding="utf-8")
 
     assert default_template_path(tmp_path, "NL", "Acme B.V.") == tmp_path / "nl" / "acme_b_v" / "template_2.yml"
+
+
+def test_default_ai_template_path_uses_next_available_name(tmp_path: Path) -> None:
+    supplier_directory = tmp_path / "nl" / "acme_b_v"
+    supplier_directory.mkdir(parents=True, exist_ok=True)
+    (supplier_directory / "template_ai.yml").write_text("", encoding="utf-8")
+
+    assert default_ai_template_path(tmp_path, "NL", "Acme B.V.") == tmp_path / "nl" / "acme_b_v" / "template_ai_1.yml"
 
 
 def test_generate_starter_template_from_sample_writes_template(monkeypatch, tmp_path: Path) -> None:
@@ -239,3 +250,34 @@ def test_generate_starter_template_from_sample_supports_multicolumn_header_date_
     assert "date:" in result.content
     assert r"Factuurdatum(?!\w)[\s\S]{0,160}?" in result.content
     assert "21\\.03\\.2026\\s+305091007\\s+20\\.03\\.2026\\s+Online\\s+betaling" not in result.content
+
+
+def test_validate_ai_template_definition_rejects_invoice_specific_keywords(monkeypatch, tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.png"
+    sample_path.write_bytes(b"png-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Acme B.V.\nFactuurnummer: INV-42\nFactuurdatum: 03-04-2026\nTotaal incl. btw: EUR 123,45"
+        ),
+    )
+
+    assert validate_ai_template_definition(
+        definition=GeneratedTemplateDefinition(
+            issuer="Acme B.V.",
+            keywords=("INV-42",),
+            fields={
+                "invoice_number": r"Factuurnummer\s*[:#-]?\s*([A-Z0-9-]+)",
+                "date": r"Factuurdatum\s*[:#-]?\s*([0-9]{2}-[0-9]{2}-[0-9]{4})",
+                "amount": r"Totaal incl\. btw\s*[:#-]?\s*(?:EUR|€)?\s*([0-9.,]+)",
+                "currency_code": r"Totaal incl\. btw\s*[:#-]?\s*((?:EUR|€))",
+            },
+        ),
+        sample_path=sample_path,
+        extractor=extractor,
+        country_code="NL",
+        required_fields=("invoice_number", "date", "amount", "currency_code"),
+    ) is False

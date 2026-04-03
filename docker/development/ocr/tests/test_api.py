@@ -66,12 +66,18 @@ def test_extract_delegates_to_extractor(monkeypatch) -> None:
         "unmapped_fields": {},
     }
 
-    def fake_extract(input_path: Path, country_code: str) -> dict:
+    def fake_extract(input_path: Path, options) -> dict:
         assert input_path.suffix == ".pdf"
-        assert country_code == "NL"
+        assert options.country_code == "NL"
+        assert options.required_fields == (
+            "invoice_number",
+            "date",
+            "amount",
+            "currency_code",
+        )
         return expected_response
 
-    monkeypatch.setattr(main.extractor, "extract", fake_extract)
+    monkeypatch.setattr(main.orchestrator, "extract", fake_extract)
 
     response = client.post(
         "/extract",
@@ -119,7 +125,7 @@ def test_template_generator_page_renders_form() -> None:
 
 
 def test_template_generator_result_writes_template(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(main.extractor, "template_dir", tmp_path)
+    monkeypatch.setattr(main.extractor, "writable_template_dir", tmp_path)
     monkeypatch.setattr(
         main.extractor,
         "_extract_ocr_text",

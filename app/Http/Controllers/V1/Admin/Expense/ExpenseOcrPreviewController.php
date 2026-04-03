@@ -9,15 +9,18 @@ use App\Models\Currency;
 use App\Models\Expense;
 use App\Services\Ocr\ExpenseOcrResult;
 use App\Services\Ocr\ExpenseOcrServiceInterface;
+use App\Services\Ocr\OcrFieldResolver;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
+use InvalidArgumentException;
 
 class ExpenseOcrPreviewController extends Controller
 {
     public function __invoke(
         ExpenseOcrRequest $request,
-        ExpenseOcrServiceInterface $expenseOcrService
+        ExpenseOcrServiceInterface $expenseOcrService,
+        OcrFieldResolver $ocrFieldResolver
     ): JsonResponse {
         $expense = null;
 
@@ -30,6 +33,7 @@ class ExpenseOcrPreviewController extends Controller
 
         $companyId = $expense?->company_id ?? $request->header('company');
         $ocrSettings = $this->getOcrSettings((int) $companyId);
+        $requiredFields = $this->resolveRequiredFields((int) $companyId, $ocrFieldResolver);
 
         if ($ocrSettings['enabled'] !== 'YES') {
             return response()->json([
@@ -41,8 +45,21 @@ class ExpenseOcrPreviewController extends Controller
             ]);
         }
 
+        if ($requiredFields === null) {
+            return response()->json([
+                'status' => 'failed',
+                'mapped_fields' => [],
+                'flagged_fields' => [],
+                'unmapped_fields' => [],
+                'message' => 'OCR required field configuration is invalid. Please review company OCR settings.',
+            ]);
+        }
+
         $ocrResult = $expenseOcrService->extract($request->file('receipt'), [
             'country_code' => $ocrSettings['country_code'],
+            'required_fields' => $requiredFields,
+            'openrouter_enabled' => $ocrSettings['openrouter_enabled'] === 'YES',
+            'auto_generate_templates' => $ocrSettings['auto_generate_templates_enabled'] === 'YES',
         ]);
 
         if ($ocrResult->status === 'failed' && ! $ocrResult->mappedFields && ! $ocrResult->unmappedFields) {
@@ -55,7 +72,13 @@ class ExpenseOcrPreviewController extends Controller
     }
 
     /**
-     * @return array{enabled: string, confidence_threshold: float, country_code: string}
+     * @return array{
+     *     enabled: string,
+     *     confidence_threshold: float,
+     *     country_code: string,
+     *     openrouter_enabled: string,
+     *     auto_generate_templates_enabled: string
+     * }
      */
     private function getOcrSettings(int $companyId): array
     {
@@ -65,7 +88,21 @@ class ExpenseOcrPreviewController extends Controller
             'enabled' => (string) (CompanySetting::getSetting('ocr_expense_enabled', $companyId) ?? 'NO'),
             'confidence_threshold' => max(0, min(1, $threshold)),
             'country_code' => strtoupper((string) (CompanySetting::getSetting('ocr_country_code', $companyId) ?? 'NL')),
+            'openrouter_enabled' => (string) (CompanySetting::getSetting('ocr_openrouter_enabled', $companyId) ?? 'NO'),
+            'auto_generate_templates_enabled' => (string) (CompanySetting::getSetting('ocr_auto_generate_templates_enabled', $companyId) ?? 'NO'),
         ];
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function resolveRequiredFields(int $companyId, OcrFieldResolver $ocrFieldResolver): ?array
+    {
+        try {
+            return $ocrFieldResolver->resolveForCompany($companyId);
+        } catch (InvalidArgumentException $exception) {
+            return null;
+        }
     }
 
     private function transformOcrResult(ExpenseOcrResult $ocrResult, float $confidenceThreshold): ExpenseOcrResult
@@ -333,6 +370,10 @@ class ExpenseOcrPreviewController extends Controller
         array $unmappedFields,
         string $fallbackStatus
     ): string {
+        if (! $mappedFields && ! $flaggedFields && $fallbackStatus === 'failed') {
+            return 'failed';
+        }
+
         if ($mappedFields && ! $flaggedFields && ! $unmappedFields) {
             return 'success';
         }
@@ -359,6 +400,10 @@ class ExpenseOcrPreviewController extends Controller
         array $unmappedFields,
         string $fallbackMessage
     ): string {
+        if (! $mappedFields && ! $flaggedFields && $fallbackMessage) {
+            return $fallbackMessage;
+        }
+
         if ($mappedFields && ! $flaggedFields && ! $unmappedFields) {
             return 'Expense details extracted successfully.';
         }

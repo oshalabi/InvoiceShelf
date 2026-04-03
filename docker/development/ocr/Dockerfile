@@ -3,7 +3,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    OCR_TEMPLATE_DIR=/app/templates
+    OCR_TEMPLATE_DIR=/app/data/templates \
+    OCR_TEMPLATE_DIRS=/app/templates-default,/app/data/templates
 
 WORKDIR /app
 
@@ -20,7 +21,9 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY ocr_service /app/ocr_service
-COPY templates /app/templates
+COPY templates /app/templates-default
+
+RUN mkdir -p /app/data/templates
 
 EXPOSE 8080
 

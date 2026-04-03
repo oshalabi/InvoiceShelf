@@ -9,7 +9,12 @@ use Illuminate\Support\Facades\Http;
 class HttpExpenseOcrService implements ExpenseOcrServiceInterface
 {
     /**
-     * @param  array{country_code?: string}  $options
+     * @param  array{
+     *     country_code?: string,
+     *     required_fields?: array<int, string>,
+     *     openrouter_enabled?: bool,
+     *     auto_generate_templates?: bool
+     * }  $options
      */
     public function extract(UploadedFile $file, array $options = []): ExpenseOcrResult
     {
@@ -25,8 +30,23 @@ class HttpExpenseOcrService implements ExpenseOcrServiceInterface
         $timeout = (int) config('services.ocr.timeout', 5);
         $countryCode = strtoupper((string) ($options['country_code'] ?? 'NL'));
         $apiKey = config('services.ocr.api_key');
+        $requiredFields = array_values(array_filter(
+            $options['required_fields'] ?? [],
+            static fn ($value) => is_string($value) && trim($value) !== ''
+        ));
+        $openrouterEnabled = (bool) ($options['openrouter_enabled'] ?? false);
+        $autoGenerateTemplates = (bool) ($options['auto_generate_templates'] ?? false);
 
         try {
+            $fileStream = fopen($file->path(), 'r');
+
+            if ($fileStream === false) {
+                return new ExpenseOcrResult(
+                    status: 'failed',
+                    message: 'We could not read the uploaded receipt. Please try again or enter the expense manually.',
+                );
+            }
+
             $request = Http::acceptJson()
                 ->timeout($timeout)
                 ->retry(2, 200);
@@ -38,11 +58,14 @@ class HttpExpenseOcrService implements ExpenseOcrServiceInterface
             $response = $request
                 ->attach(
                     'file',
-                    file_get_contents($file->getRealPath()),
+                    $fileStream,
                     $file->getClientOriginalName()
                 )
                 ->post($baseUrl, [
                     'country_code' => $countryCode,
+                    'required_fields' => implode(',', $requiredFields),
+                    'openrouter_enabled' => $openrouterEnabled ? 'true' : 'false',
+                    'auto_generate_templates' => $autoGenerateTemplates ? 'true' : 'false',
                 ]);
         } catch (ConnectionException $exception) {
             return new ExpenseOcrResult(

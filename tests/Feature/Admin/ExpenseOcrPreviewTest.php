@@ -29,11 +29,14 @@ beforeEach(function () {
         'ocr_expense_enabled' => 'YES',
         'ocr_confidence_threshold' => 0.85,
         'ocr_country_code' => 'NL',
+        'ocr_openrouter_enabled' => 'NO',
+        'ocr_auto_generate_templates_enabled' => 'NO',
     ], $companyId);
 
     config()->set('services.ocr.base_url', 'https://ocr.test/api/expenses/preview');
     config()->set('services.ocr.api_key', 'test-key');
     config()->set('services.ocr.timeout', 5);
+    config()->set('services.ocr.required_fields', 'invoice_number,date,amount,currency_code');
 });
 
 test('preview expense ocr maps supported high confidence fields', function () {
@@ -64,6 +67,15 @@ test('preview expense ocr maps supported high confidence fields', function () {
 
     expect($response->json('mapped_fields.currency_id'))->not->toBeNull();
     expect($response->json('unmapped_fields.vat_amount.reason'))->toBe('Field is not mapped to the expense form.');
+
+    Http::assertSent(function ($request) {
+        $multipartFields = collect($request->data())->keyBy('name');
+
+        return $request->hasFile('file', filename: 'invoice.pdf')
+            && $multipartFields->get('required_fields')['contents'] === 'invoice_number,date,amount,currency_code'
+            && $multipartFields->get('openrouter_enabled')['contents'] === 'false'
+            && $multipartFields->get('auto_generate_templates')['contents'] === 'false';
+    });
 });
 
 test('preview expense ocr flags low confidence fields for review', function () {
@@ -126,6 +138,55 @@ test('preview expense ocr returns disabled status when company setting is off', 
         ->assertOk()
         ->assertJsonPath('status', 'disabled')
         ->assertJsonPath('message', 'OCR autofill is disabled for this company.');
+
+    Http::assertNothingSent();
+});
+
+test('preview expense ocr passes company required field overrides to the OCR service', function () {
+    CompanySetting::setSettings([
+        'ocr_required_fields' => 'invoice_number,date,amount',
+        'ocr_openrouter_enabled' => 'YES',
+        'ocr_auto_generate_templates_enabled' => 'YES',
+    ], $this->companyId);
+
+    Http::fake([
+        'https://ocr.test/*' => Http::response([
+            'status' => 'success',
+            'fields' => [
+                'invoice_date' => ['value' => '2026-04-01', 'confidence' => 0.99],
+                'invoice_number' => ['value' => 'INV-2026-004', 'confidence' => 0.91],
+                'total_amount' => ['value' => '123.45', 'confidence' => 0.96],
+            ],
+        ]),
+    ]);
+
+    post('/api/v1/expenses/ocr-preview', [
+        'receipt' => UploadedFile::fake()->create('invoice.pdf', 100, 'application/pdf'),
+    ])->assertOk();
+
+    Http::assertSent(function ($request) {
+        $multipartFields = collect($request->data())->keyBy('name');
+
+        return $request->hasFile('file', filename: 'invoice.pdf')
+            && $multipartFields->get('required_fields')['contents'] === 'invoice_number,date,amount'
+            && $multipartFields->get('openrouter_enabled')['contents'] === 'true'
+            && $multipartFields->get('auto_generate_templates')['contents'] === 'true';
+    });
+});
+
+test('preview expense ocr returns failed status when required field configuration is invalid', function () {
+    config()->set('services.ocr.required_fields', 'invoice_number,unknown_field');
+
+    Http::fake();
+
+    $response = post('/api/v1/expenses/ocr-preview', [
+        'receipt' => UploadedFile::fake()->create('invoice.pdf', 100, 'application/pdf'),
+    ]);
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('status', 'failed')
+        ->assertJsonPath('message', 'OCR required field configuration is invalid. Please review company OCR settings.');
 
     Http::assertNothingSent();
 });

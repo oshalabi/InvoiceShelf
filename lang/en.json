@@ -1308,6 +1308,12 @@
       "ocr_confidence_threshold_description": "Values below this threshold are flagged for manual review instead of being auto-filled.",
       "ocr_country_code": "OCR country code",
       "ocr_country_code_description": "Keep this set to NL for Dutch invoice processing in the current rollout.",
+      "ocr_required_fields": "OCR required fields",
+      "ocr_required_fields_description": "Comma-separated extractor field keys used to determine when OCR extraction is complete.",
+      "ocr_openrouter_enabled": "Enable OpenRouter OCR fallback",
+      "ocr_openrouter_enabled_description": "Send invoices to OpenRouter only when local OCR cannot fully extract the required invoice fields.",
+      "ocr_auto_generate_templates_enabled": "Auto-generate OCR templates with OpenRouter",
+      "ocr_auto_generate_templates_enabled_description": "When local OCR fully fails, ask OpenRouter to generate and validate a new template for future invoices from the same supplier.",
       "fiscal_years": {
         "january_december": "January - December",
         "february_january": "February - January",

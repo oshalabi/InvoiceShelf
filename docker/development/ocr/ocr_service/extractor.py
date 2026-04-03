@@ -13,20 +13,34 @@ from typing import Any
 
 import yaml
 
+from ocr_service.fields import DEFAULT_REQUIRED_FIELDS, public_field_name
+
 
 class OcrExtractor:
     SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
-    REQUIRED_FIELDS = frozenset({"invoice_date", "invoice_number", "total_amount"})
     INVOICE_NUMBER_VALUE_PATTERN = r"((?=[A-Z0-9/._-]*\d)[A-Z0-9][A-Z0-9/._-]+)"
     GENERIC_ISSUER_VALUES = frozenset({"", "n/a", "na", "onbekend", "supplier", "unknown", "vendor"})
     DATE_VALUE_PATTERN = r"([0-9]{2}[./-][0-9]{2}[./-][0-9]{4})"
     AMOUNT_VALUE_PATTERN = r"([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]+[.,][0-9]{2})"
 
-    def __init__(self, template_dir: Path) -> None:
-        self.template_dir = template_dir
+    def __init__(
+        self,
+        template_dir: Path,
+        template_dirs: list[Path] | tuple[Path, ...] | None = None,
+        writable_template_dir: Path | None = None,
+    ) -> None:
+        self.template_dir = writable_template_dir or template_dir
+        self.template_dirs = list(template_dirs or [template_dir])
+        self.writable_template_dir = writable_template_dir or self.template_dir
 
-    def extract(self, file_path: Path, country_code: str = "NL") -> dict[str, Any]:
+    def extract(
+        self,
+        file_path: Path,
+        country_code: str = "NL",
+        required_fields: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         country_code = (country_code or os.getenv("OCR_DEFAULT_COUNTRY_CODE", "NL")).upper()
+        required_fields = required_fields or DEFAULT_REQUIRED_FIELDS
         responses: list[dict[str, Any]] = []
 
         if file_path.suffix.lower() == ".pdf":
@@ -39,6 +53,7 @@ class OcrExtractor:
                     searchable_payload,
                     source_reader="pdftotext",
                     country_code=country_code,
+                    required_fields=required_fields,
                 )
                 responses.append(searchable_response)
 
@@ -62,18 +77,19 @@ class OcrExtractor:
                             ocr_payload,
                             source_reader="tesseract",
                             country_code=country_code,
+                            required_fields=required_fields,
                         )
                     )
 
         if responses:
             return max(responses, key=self._score_response)
 
-        return self._failed_response(country_code)
+        return self._failed_response(country_code, required_fields)
 
     def template_count(self) -> int:
         return len(list(self._iter_templates()))
 
-    def _failed_response(self, country_code: str) -> dict[str, Any]:
+    def _failed_response(self, country_code: str, required_fields: tuple[str, ...] | None = None) -> dict[str, Any]:
         return {
             "status": "failed",
             "message": "No matching invoice template found for this document.",
@@ -355,7 +371,11 @@ class OcrExtractor:
         payload: dict[str, Any],
         source_reader: str,
         country_code: str,
+        required_fields: tuple[str, ...] | None = None,
+        field_confidences: dict[str, float] | None = None,
     ) -> dict[str, Any]:
+        required_fields = required_fields or DEFAULT_REQUIRED_FIELDS
+        field_confidences = field_confidences or {}
         confidence = 0.98 if source_reader == "pdftotext" else 0.78
         fields: dict[str, dict[str, Any]] = {}
 
@@ -364,7 +384,11 @@ class OcrExtractor:
         if invoice_date:
             fields["invoice_date"] = {
                 "value": str(invoice_date),
-                "confidence": confidence,
+                "confidence": self._resolve_field_confidence(
+                    field_confidences,
+                    "date",
+                    confidence,
+                ),
             }
 
         invoice_number = self._normalize_invoice_number(
@@ -377,7 +401,11 @@ class OcrExtractor:
         if invoice_number:
             fields["invoice_number"] = {
                 "value": invoice_number,
-                "confidence": confidence,
+                "confidence": self._resolve_field_confidence(
+                    field_confidences,
+                    "invoice_number",
+                    confidence,
+                ),
             }
 
         normalized_amount = self._normalize_amount(
@@ -387,7 +415,11 @@ class OcrExtractor:
         if normalized_amount is not None:
             fields["total_amount"] = {
                 "value": normalized_amount,
-                "confidence": confidence,
+                "confidence": self._resolve_field_confidence(
+                    field_confidences,
+                    "amount",
+                    confidence,
+                ),
             }
 
         currency_code = self._normalize_currency(
@@ -397,12 +429,17 @@ class OcrExtractor:
         if currency_code:
             fields["currency_code"] = {
                 "value": currency_code,
-                "confidence": confidence,
+                "confidence": self._resolve_field_confidence(
+                    field_confidences,
+                    "currency_code",
+                    confidence,
+                ),
             }
 
-        missing_required_fields = self.REQUIRED_FIELDS.difference(fields.keys())
+        required_public_fields = {public_field_name(field_name) for field_name in required_fields}
+        missing_required_fields = required_public_fields.difference(fields.keys())
 
-        if self.REQUIRED_FIELDS.issubset(fields.keys()):
+        if required_public_fields.issubset(fields.keys()):
             status = "success"
             message = "Invoice fields extracted successfully."
         elif fields:
@@ -548,6 +585,22 @@ class OcrExtractor:
             return normalized_currency
 
         return None
+
+    def _resolve_field_confidence(
+        self,
+        field_confidences: dict[str, float],
+        field_name: str,
+        default_confidence: float,
+    ) -> float:
+        raw_confidence = field_confidences.get(field_name)
+
+        if raw_confidence is None:
+            return default_confidence
+
+        try:
+            return max(0.0, min(1.0, float(raw_confidence)))
+        except (TypeError, ValueError):
+            return default_confidence
 
     def _normalize_issuer(self, value: Any) -> str | None:
         if value is None:
@@ -794,13 +847,26 @@ class OcrExtractor:
 
     def _flatten_templates(self, destination_directory: Path) -> None:
         for template_path in self._iter_templates():
-            flattened_name = "__".join(template_path.relative_to(self.template_dir).parts)
+            root_directory = next(
+                template_root
+                for template_root in self.template_dirs
+                if template_path.is_relative_to(template_root)
+            )
+            flattened_name = "__".join((root_directory.name, *template_path.relative_to(root_directory).parts))
             shutil.copy2(template_path, destination_directory / flattened_name)
 
     def _iter_templates(self) -> list[Path]:
         return sorted(
-            [
-                *self.template_dir.rglob("*.yml"),
-                *self.template_dir.rglob("*.yaml"),
-            ]
+            {
+                *[
+                    template_path
+                    for template_root in self.template_dirs
+                    for template_path in template_root.rglob("*.yml")
+                ],
+                *[
+                    template_path
+                    for template_root in self.template_dirs
+                    for template_path in template_root.rglob("*.yaml")
+                ],
+            }
         )

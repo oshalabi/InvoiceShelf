@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ocr_service.extractor import OcrExtractor
+from ocr_service.fields import DEFAULT_REQUIRED_FIELDS
 
 GENERIC_ISSUER_VALUES = {
     "",
@@ -117,7 +118,9 @@ def build_validated_template_definition(
     resolved_issuer: str,
     text_sources: list[str],
     extractor: OcrExtractor,
+    required_fields: tuple[str, ...] | None = None,
 ) -> GeneratedTemplateDefinition:
+    required_fields = required_fields or DEFAULT_REQUIRED_FIELDS
     fields = {
         "invoice_number": choose_best_pattern(
             build_invoice_number_patterns(spec),
@@ -147,6 +150,7 @@ def build_validated_template_definition(
         resolved_issuer,
         text_sources,
         extractor,
+        required_fields,
     )
 
     if not validate_template_definition(
@@ -155,12 +159,14 @@ def build_validated_template_definition(
         fields,
         text_sources,
         extractor,
+        required_fields,
     ) and validate_template_definition(
         resolved_issuer,
         (),
         fields,
         text_sources,
         extractor,
+        required_fields,
     ):
         keywords = ()
 
@@ -179,6 +185,22 @@ def default_template_path(template_dir: Path, country_code: str, issuer: str) ->
 
     while True:
         file_name = "template.yml" if index == 0 else f"template_{index}.yml"
+        candidate = supplier_directory / file_name
+
+        if not candidate.exists():
+            return candidate
+
+        index += 1
+
+
+def default_ai_template_path(template_dir: Path, country_code: str, issuer: str) -> Path:
+    supplier_directory = template_dir / country_code.lower() / slugify(issuer)
+    supplier_directory.mkdir(parents=True, exist_ok=True)
+
+    index = 0
+
+    while True:
+        file_name = "template_ai.yml" if index == 0 else f"template_ai_{index}.yml"
         candidate = supplier_directory / file_name
 
         if not candidate.exists():
@@ -214,6 +236,7 @@ def choose_valid_keywords(
     issuer: str,
     text_sources: list[str],
     extractor: OcrExtractor,
+    required_fields: tuple[str, ...],
 ) -> tuple[str, ...]:
     unique_keywords = dedupe_patterns(list(candidate_keywords))
 
@@ -228,13 +251,13 @@ def choose_valid_keywords(
 
         trial_keywords = tuple([*chosen_keywords, keyword])
 
-        if validate_template_definition(issuer, trial_keywords, fields, text_sources, extractor):
+        if validate_template_definition(issuer, trial_keywords, fields, text_sources, extractor, required_fields):
             chosen_keywords.append(keyword)
 
     if chosen_keywords:
         return tuple(chosen_keywords[:3])
 
-    if validate_template_definition(issuer, (), fields, text_sources, extractor):
+    if validate_template_definition(issuer, (), fields, text_sources, extractor, required_fields):
         return ()
 
     return unique_keywords[:1]
@@ -246,7 +269,9 @@ def validate_template_definition(
     fields: dict[str, str],
     text_sources: list[str],
     extractor: OcrExtractor,
+    required_fields: tuple[str, ...] | None = None,
 ) -> bool:
+    required_fields = required_fields or DEFAULT_REQUIRED_FIELDS
     template_definition: dict[str, Any] = {
         "issuer": issuer,
         "keywords": list(keywords),
@@ -259,10 +284,38 @@ def validate_template_definition(
         if not payload:
             continue
 
-        if {"invoice_number", "date", "amount"}.issubset(payload.keys()):
+        payload = extractor._repair_payload(payload, text)
+
+        if set(required_fields).issubset(payload.keys()):
             return True
 
     return False
+
+
+def validate_ai_template_definition(
+    definition: GeneratedTemplateDefinition,
+    sample_path: Path,
+    extractor: OcrExtractor,
+    country_code: str,
+    required_fields: tuple[str, ...],
+) -> bool:
+    text_sources = collect_text_sources(sample_path, extractor, country_code)
+
+    if not validate_template_definition(
+        issuer=definition.issuer,
+        keywords=definition.keywords,
+        fields=definition.fields,
+        text_sources=text_sources,
+        extractor=extractor,
+        required_fields=required_fields,
+    ):
+        return False
+
+    for keyword in definition.keywords:
+        if keyword_looks_invoice_specific(keyword):
+            return False
+
+    return True
 
 
 def choose_best_pattern(patterns: tuple[str, ...], text_sources: list[str]) -> str:
@@ -604,6 +657,25 @@ def looks_like_value_line(line: str) -> bool:
         return True
 
     if any(marker in line.lower() for marker in ("betaling", "bestelnummer", "leveringsnummer")) and re.search(r"\d", line):
+        return True
+
+    return False
+
+
+def keyword_looks_invoice_specific(keyword: str) -> bool:
+    if re.search(DATE_VALUE_PATTERN, keyword):
+        return True
+
+    if re.search(AMOUNT_VALUE_PATTERN, keyword):
+        return True
+
+    if len(re.findall(r"\d", keyword)) >= 8:
+        return True
+
+    if re.fullmatch(r"[A-Z0-9._/-]+", keyword, re.IGNORECASE) and re.search(r"\d", keyword):
+        return True
+
+    if any(marker in keyword.lower() for marker in ("factuurnummer", "invoice_number", "bestelnummer", "leveringsnummer")):
         return True
 
     return False

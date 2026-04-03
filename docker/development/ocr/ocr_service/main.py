@@ -10,15 +10,45 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 
 from ocr_service.extractor import OcrExtractor
+from ocr_service.fields import default_required_fields_from_env, normalize_required_fields
+from ocr_service.openrouter_client import OpenRouterClient
+from ocr_service.orchestrator import OcrOrchestrator, OcrProcessOptions
 from ocr_service.template_generator import (
     TemplateSpec,
     generate_starter_template_from_sample,
 )
 
 app = FastAPI(title="InvoiceShelf OCR Sidecar")
-extractor = OcrExtractor(
-    template_dir=Path(os.getenv("OCR_TEMPLATE_DIR", "/app/templates"))
-)
+
+
+def _parse_template_dirs() -> list[Path]:
+    configured_template_dirs = os.getenv("OCR_TEMPLATE_DIRS")
+
+    if not configured_template_dirs:
+        default_template_dir = Path(os.getenv("OCR_TEMPLATE_DIR", "/app/templates"))
+        return [default_template_dir]
+
+    return [
+        Path(item.strip())
+        for item in configured_template_dirs.split(",")
+        if item.strip()
+    ]
+
+
+def _build_extractor() -> OcrExtractor:
+    template_dirs = _parse_template_dirs()
+    writable_template_dir = Path(os.getenv("OCR_TEMPLATE_DIR", str(template_dirs[-1])))
+
+    return OcrExtractor(
+        template_dir=template_dirs[0],
+        template_dirs=template_dirs,
+        writable_template_dir=writable_template_dir,
+    )
+
+
+extractor = _build_extractor()
+openrouter_client = OpenRouterClient()
+orchestrator = OcrOrchestrator(extractor, openrouter_client)
 
 
 def _page_layout(title: str, body: str) -> str:
@@ -166,11 +196,28 @@ async def _store_upload(file: UploadFile) -> tuple[str, bytes]:
     return original_name, file_bytes
 
 
-def _extract_from_bytes(file_name: str, file_bytes: bytes, country_code: str) -> dict[str, object]:
+def _extract_from_bytes(
+    file_name: str,
+    file_bytes: bytes,
+    country_code: str,
+    required_fields: tuple[str, ...] | None = None,
+    openrouter_enabled: bool = False,
+    auto_generate_templates: bool = False,
+) -> dict[str, object]:
+    normalized_required_fields = required_fields or default_required_fields_from_env()
+
     with TemporaryDirectory() as temporary_directory:
         input_path = Path(temporary_directory) / file_name
         input_path.write_bytes(file_bytes)
-        return extractor.extract(input_path, country_code=country_code)
+        return orchestrator.extract(
+            input_path,
+            OcrProcessOptions(
+                country_code=country_code,
+                required_fields=normalized_required_fields,
+                openrouter_enabled=openrouter_enabled,
+                auto_generate_templates=auto_generate_templates,
+            ),
+        )
 
 
 def _render_json_result_page(title: str, payload: dict[str, object]) -> HTMLResponse:
@@ -214,6 +261,18 @@ def playground() -> HTMLResponse:
                   Country code
                   <input type="text" name="country_code" value="NL" maxlength="2" />
                 </label>
+                <label>
+                  Required fields
+                  <input type="text" name="required_fields" value="invoice_number,date,amount,currency_code" />
+                </label>
+                <label>
+                  OpenRouter fallback
+                  <input type="text" name="openrouter_enabled" value="false" />
+                </label>
+                <label>
+                  Auto-generate templates
+                  <input type="text" name="auto_generate_templates" value="false" />
+                </label>
                 <button type="submit">Run OCR</button>
               </form>
             </section>
@@ -234,7 +293,7 @@ def template_generator_page() -> HTMLResponse:
             </div>
             <section class="card">
               <h1>Starter Template Generator</h1>
-              <p>Upload a sample invoice and enter the label text printed on it. The sidecar will generate and save a starter <code>template.yml</code> under the mounted templates directory.</p>
+              <p>Upload a sample invoice and enter the label text printed on it. The sidecar will generate and save a starter <code>template.yml</code> under the writable OCR template directory.</p>
               <form action="/template-generator/result" method="post" enctype="multipart/form-data">
                 <div class="grid">
                   <label>
@@ -296,18 +355,50 @@ def health() -> dict[str, int | str]:
 async def extract(
     file: UploadFile = File(...),
     country_code: str = Form("NL"),
+    required_fields: str = Form("invoice_number,date,amount,currency_code"),
+    openrouter_enabled: str = Form("false"),
+    auto_generate_templates: str = Form("false"),
 ) -> dict[str, object]:
     original_name, file_bytes = await _store_upload(file)
-    return _extract_from_bytes(original_name, file_bytes, country_code)
+
+    try:
+        normalized_required_fields = normalize_required_fields(required_fields)
+    except ValueError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+
+    return _extract_from_bytes(
+        original_name,
+        file_bytes,
+        country_code,
+        required_fields=normalized_required_fields,
+        openrouter_enabled=_to_bool(openrouter_enabled),
+        auto_generate_templates=_to_bool(auto_generate_templates),
+    )
 
 
 @app.post("/playground/result", response_class=HTMLResponse)
 async def playground_result(
     file: UploadFile = File(...),
     country_code: str = Form("NL"),
+    required_fields: str = Form("invoice_number,date,amount,currency_code"),
+    openrouter_enabled: str = Form("false"),
+    auto_generate_templates: str = Form("false"),
 ) -> HTMLResponse:
     original_name, file_bytes = await _store_upload(file)
-    payload = _extract_from_bytes(original_name, file_bytes, country_code)
+
+    try:
+        normalized_required_fields = normalize_required_fields(required_fields)
+    except ValueError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+
+    payload = _extract_from_bytes(
+        original_name,
+        file_bytes,
+        country_code,
+        required_fields=normalized_required_fields,
+        openrouter_enabled=_to_bool(openrouter_enabled),
+        auto_generate_templates=_to_bool(auto_generate_templates),
+    )
 
     return _render_json_result_page("OCR JSON Result", payload)
 
@@ -336,7 +427,7 @@ async def template_generator_result(
         input_path.write_bytes(file_bytes)
         result = generate_starter_template_from_sample(
             sample_path=input_path,
-            template_dir=extractor.template_dir,
+            template_dir=extractor.writable_template_dir,
             extractor=extractor,
             spec=TemplateSpec(
                 issuer=issuer.strip(),
@@ -371,7 +462,7 @@ async def template_generator_result(
             </div>
             <section class="card">
               <h1>Starter Template Result</h1>
-              <p>The template below was generated from your uploaded sample and written into the mounted templates directory.</p>
+              <p>The template below was generated from your uploaded sample and written into the writable OCR template directory.</p>
               {''.join(notices)}
               <h2>Generated template.yml</h2>
               <pre>{html.escape(result.content)}</pre>
@@ -381,3 +472,7 @@ async def template_generator_result(
             """,
         )
     )
+
+
+def _to_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}

@@ -60,6 +60,7 @@ def test_build_response_marks_missing_required_fields_as_partial() -> None:
 
     assert response["status"] == "partial"
     assert response["unmapped_fields"]["missing_required_fields"]["value"] == [
+        "currency_code",
         "invoice_date",
         "total_amount",
     ]
@@ -72,7 +73,7 @@ def test_flatten_templates_copies_nested_templates(tmp_path: Path) -> None:
 
     flattened_templates = sorted(path.name for path in tmp_path.iterdir())
 
-    assert "nl__demo_leverancier_bv__template.yml" in flattened_templates
+    assert "templates__nl__demo_leverancier_bv__template.yml" in flattened_templates
 
 
 def test_extract_returns_searchable_match_without_ocr_fallback(

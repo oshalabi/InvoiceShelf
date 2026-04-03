@@ -12,6 +12,7 @@ services:
       OCR_BASE_URL: ${OCR_BASE_URL:-http://ocr:8080/extract}
       OCR_API_KEY: ${OCR_API_KEY:-}
       OCR_TIMEOUT: ${OCR_TIMEOUT:-15}
+      OCR_REQUIRED_FIELDS: ${OCR_REQUIRED_FIELDS:-invoice_number,date,amount,currency_code}
     volumes:
       - ../../:/var/www/html
     networks:
@@ -105,16 +106,28 @@ services:
       context: ./ocr
       dockerfile: Dockerfile
     environment:
-      OCR_TEMPLATE_DIR: /app/templates
+      OCR_TEMPLATE_DIR: /app/data/templates
+      OCR_TEMPLATE_DIRS: /app/templates-default,/app/data/templates
       OCR_DEFAULT_COUNTRY_CODE: NL
       OCR_DEFAULT_LANGUAGE: eng
       OCR_DUTCH_LANGUAGE: nld+eng
+      OCR_REQUIRED_FIELDS: ${OCR_REQUIRED_FIELDS:-invoice_number,date,amount,currency_code}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1/chat/completions}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_TEMPLATE_MODEL: ${OPENROUTER_TEMPLATE_MODEL:-}
+      OPENROUTER_TIMEOUT: ${OPENROUTER_TIMEOUT:-30}
+      OPENROUTER_REQUIRE_ZDR: ${OPENROUTER_REQUIRE_ZDR:-true}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-InvoiceShelf OCR}
+      OPENROUTER_PDF_ENGINE: ${OPENROUTER_PDF_ENGINE:-mistral-ocr}
     expose:
       - "8080"
     ports:
       - "4562:8080"
     volumes:
-      - ./ocr/templates:/app/templates
+      - ./ocr/templates:/app/templates-default:ro
+      - invoiceshelf-dev-ocr-templates:/app/data/templates
     healthcheck:
       test:
         - CMD
@@ -134,3 +147,4 @@ networks:
 volumes:
   invoiceshelf-dev-mysql:
   invoiceshelf-dev-minio:
+  invoiceshelf-dev-ocr-templates:

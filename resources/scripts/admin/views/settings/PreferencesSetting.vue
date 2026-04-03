@@ -167,7 +167,31 @@
             maxlength="2"
           />
         </BaseInputGroup>
+
+        <BaseInputGroup
+          :label="$t('settings.preferences.ocr_required_fields')"
+          :help-text="$t('settings.preferences.ocr_required_fields_description')"
+        >
+          <BaseInput
+            v-model="settingsForm.ocr_required_fields"
+            type="text"
+          />
+        </BaseInputGroup>
       </BaseInputGrid>
+
+      <BaseSwitchSection
+        v-if="ocrExpenseEnabledField"
+        v-model="ocrOpenrouterEnabledField"
+        :title="$t('settings.preferences.ocr_openrouter_enabled')"
+        :description="$t('settings.preferences.ocr_openrouter_enabled_description')"
+      />
+
+      <BaseSwitchSection
+        v-if="ocrExpenseEnabledField && ocrOpenrouterEnabledField"
+        v-model="ocrAutoGenerateTemplatesEnabledField"
+        :title="$t('settings.preferences.ocr_auto_generate_templates_enabled')"
+        :description="$t('settings.preferences.ocr_auto_generate_templates_enabled_description')"
+      />
 
       <BaseButton
         :content-loading="isFetchingInitialData"
@@ -258,6 +282,12 @@ const settingsForm = reactive({
     companyStore.selectedCompanySettings.ocr_confidence_threshold || 0.85
   ),
   ocr_country_code: companyStore.selectedCompanySettings.ocr_country_code || 'NL',
+  ocr_openrouter_enabled: companyStore.selectedCompanySettings.ocr_openrouter_enabled || 'NO',
+  ocr_auto_generate_templates_enabled:
+    companyStore.selectedCompanySettings.ocr_auto_generate_templates_enabled || 'NO',
+  ocr_required_fields:
+    companyStore.selectedCompanySettings.ocr_required_fields ||
+    'invoice_number,date,amount,currency_code',
 })
 
 const retrospectiveEditOptions = computed(() => {
@@ -343,6 +373,24 @@ const ocrExpenseEnabledField = computed({
   },
   set: (newValue) => {
     settingsForm.ocr_expense_enabled = newValue ? 'YES' : 'NO'
+  },
+})
+
+const ocrOpenrouterEnabledField = computed({
+  get: () => {
+    return settingsForm.ocr_openrouter_enabled === 'YES'
+  },
+  set: (newValue) => {
+    settingsForm.ocr_openrouter_enabled = newValue ? 'YES' : 'NO'
+  },
+})
+
+const ocrAutoGenerateTemplatesEnabledField = computed({
+  get: () => {
+    return settingsForm.ocr_auto_generate_templates_enabled === 'YES'
+  },
+  set: (newValue) => {
+    settingsForm.ocr_auto_generate_templates_enabled = newValue ? 'YES' : 'NO'
   },
 })
 
@@ -435,6 +483,12 @@ async function updatePreferencesData() {
     .toString()
     .trim()
     .toUpperCase()
+  data.settings.ocr_required_fields = (data.settings.ocr_required_fields || '')
+    .toString()
+    .split(',')
+    .map((field) => field.trim())
+    .filter(Boolean)
+    .join(',')
 
   // If language is being changed, load it dynamically first
   if (companyStore.selectedCompanySettings.language !== settingsForm.language) {

@@ -50,6 +50,7 @@ return [
         'base_url' => env('OCR_BASE_URL'),
         'api_key' => env('OCR_API_KEY'),
         'timeout' => env('OCR_TIMEOUT', 5),
+        'required_fields' => env('OCR_REQUIRED_FIELDS', 'invoice_number,date,amount,currency_code'),
     ],
 
 ];
