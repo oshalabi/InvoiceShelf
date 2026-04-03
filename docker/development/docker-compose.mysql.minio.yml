@@ -8,6 +8,10 @@ services:
         - UID=${USRID:-1000}
         - GID=${GRPID:-1000}
       target: development
+    environment:
+      OCR_BASE_URL: ${OCR_BASE_URL:-http://ocr:8080/extract}
+      OCR_API_KEY: ${OCR_API_KEY:-}
+      OCR_TIMEOUT: ${OCR_TIMEOUT:-15}
     volumes:
       - ../../:/var/www/html
     networks:
@@ -95,8 +99,38 @@ services:
     networks:
       - invoiceshelf-dev
 
+  ocr:
+    container_name: invoiceshelf-dev-ocr
+    build:
+      context: ./ocr
+      dockerfile: Dockerfile
+    environment:
+      OCR_TEMPLATE_DIR: /app/templates
+      OCR_DEFAULT_COUNTRY_CODE: NL
+      OCR_DEFAULT_LANGUAGE: eng
+      OCR_DUTCH_LANGUAGE: nld+eng
+    expose:
+      - "8080"
+    ports:
+      - "4562:8080"
+    volumes:
+      - ./ocr/templates:/app/templates
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - invoiceshelf-dev
+
 networks:
   invoiceshelf-dev:
 
 volumes:
   invoiceshelf-dev-mysql:
+  invoiceshelf-dev-minio:

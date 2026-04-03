@@ -24,6 +24,7 @@ use App\Http\Controllers\V1\Admin\ExchangeRate\GetExchangeRateController;
 use App\Http\Controllers\V1\Admin\ExchangeRate\GetSupportedCurrenciesController;
 use App\Http\Controllers\V1\Admin\ExchangeRate\GetUsedCurrenciesController;
 use App\Http\Controllers\V1\Admin\Expense\ExpenseCategoriesController;
+use App\Http\Controllers\V1\Admin\Expense\ExpenseOcrPreviewController;
 use App\Http\Controllers\V1\Admin\Expense\ExpensesController;
 use App\Http\Controllers\V1\Admin\Expense\ShowReceiptController;
 use App\Http\Controllers\V1\Admin\Expense\UploadReceiptController;
@@ -309,6 +310,8 @@ Route::prefix('/v1')->group(function () {
             Route::get('/expenses/{expense}/show/receipt', ShowReceiptController::class);
 
             Route::post('/expenses/{expense}/upload/receipts', UploadReceiptController::class);
+
+            Route::post('/expenses/ocr-preview', ExpenseOcrPreviewController::class);
 
             Route::post('/expenses/delete', [ExpensesController::class, 'delete']);
 

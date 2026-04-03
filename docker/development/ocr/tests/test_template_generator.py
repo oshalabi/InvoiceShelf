@@ -1,0 +1,241 @@
+from pathlib import Path
+
+from ocr_service.extractor import OcrExtractor
+from ocr_service.template_generator import (
+    TemplateSpec,
+    default_template_path,
+    generate_starter_template_from_sample,
+    suggest_keywords,
+)
+
+
+def test_suggest_keywords_prefers_issuer_and_trade_identifiers() -> None:
+    keywords = suggest_keywords(
+        "Acme B.V.",
+        "Acme B.V.\nKvK 12345678\nBTW NL123456789B01\nFactuurnummer: ACME-42",
+    )
+
+    assert keywords[0] == r"(?i)Acme\s+B\.V\."
+    assert r"(?i)KvK\s*(?:nr)?[:.]?\s*12345678" in keywords
+    assert r"(?i)NL123456789B01" in keywords
+
+
+def test_default_template_path_uses_country_and_slug(tmp_path: Path) -> None:
+    assert default_template_path(tmp_path, "NL", "Acme B.V.") == tmp_path / "nl" / "acme_b_v" / "template.yml"
+
+
+def test_default_template_path_uses_next_available_name(tmp_path: Path) -> None:
+    supplier_directory = tmp_path / "nl" / "acme_b_v"
+    supplier_directory.mkdir(parents=True, exist_ok=True)
+    (supplier_directory / "template.yml").write_text("", encoding="utf-8")
+    (supplier_directory / "template_1.yml").write_text("", encoding="utf-8")
+
+    assert default_template_path(tmp_path, "NL", "Acme B.V.") == tmp_path / "nl" / "acme_b_v" / "template_2.yml"
+
+
+def test_generate_starter_template_from_sample_writes_template(monkeypatch, tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.png"
+    sample_path.write_bytes(b"png-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Acme B.V.\nKvK 12345678\nFactuurnummer: ACME-42\nFactuurdatum: 03-04-2026\n"
+            "Totaal incl. btw: EUR 123,45"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Acme B.V.",
+            invoice_number_label="Factuurnummer",
+            date_label="Factuurdatum",
+            amount_label="Totaal incl. btw",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    assert result.output_path.exists()
+    assert result.output_path.name == "template.yml"
+    assert "invoice_number" in result.content
+    assert r"KvK\s*(?:nr)?[:.]?\s*12345678" in result.content
+    assert r"\s*" in result.content
+    assert r"\\s*" not in result.content
+    assert result.missing_labels == ()
+
+
+def test_generate_starter_template_from_sample_does_not_overwrite_existing_template(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    template_dir = tmp_path / "templates"
+    existing_template = template_dir / "nl" / "acme_b_v" / "template.yml"
+    existing_template.parent.mkdir(parents=True, exist_ok=True)
+    existing_template.write_text("issuer: 'Existing Template'\n", encoding="utf-8")
+
+    extractor = OcrExtractor(template_dir)
+    sample_path = tmp_path / "invoice.png"
+    sample_path.write_bytes(b"png-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Acme B.V.\nKvK 12345678\nFactuurnummer: ACME-42\nFactuurdatum: 03-04-2026\n"
+            "Totaal incl. btw: EUR 123,45"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=template_dir,
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Acme B.V.",
+            invoice_number_label="Factuurnummer",
+            date_label="Factuurdatum",
+            amount_label="Totaal incl. btw",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    assert existing_template.read_text(encoding="utf-8") == "issuer: 'Existing Template'\n"
+    assert result.output_path == template_dir / "nl" / "acme_b_v" / "template_1.yml"
+
+
+def test_generate_starter_template_from_sample_resolves_generic_issuer_and_dedupes_keywords(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.pdf"
+    sample_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "mmm\nMyCompany zen\nBedrijf B.V.\nBTW nummer: NL0123456789B01\n"
+            "Factu ur Factuurnummer: F2022-0021\nFactuurdatum: 05-07-2022\n"
+            "Totaal incl. BTW € 933,52"
+        ),
+    )
+    monkeypatch.setattr(
+        extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: (
+            "Bedrijf B.V.\nBTW nummer: NL0123456789B01\n"
+            "Factuurnummer:\nF2022-0021\nFactuurdatum:\n05-07-2022\n"
+            "Totaal incl. BTW\n€\n933,52"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Onbekend",
+            invoice_number_label="Factuurnummer",
+            date_label="Factuurdatum",
+            amount_label="Totaal incl. BTW",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    assert result.output_path == tmp_path / "templates" / "nl" / "bedrijf_b_v" / "template.yml"
+    assert "issuer: 'Bedrijf B.V.'" in result.content
+    assert "Onbekend" not in result.content
+    assert result.content.count("NL0123456789B01") == 1
+    assert "currency_code" in result.content
+    assert "(?:EUR|€)" in result.content
+
+
+def test_generate_starter_template_from_sample_prefers_validated_fallback_patterns(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.png"
+    sample_path.write_bytes(b"png-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Croco Shop\nke 03887323 ~ BTW NL10093674500%\n"
+            "Factuurdatum: 26-06-2015 2015384\nvaluta EUR\nSubtotaal €2.405,63"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Croco shop",
+            invoice_number_label="Factuur",
+            date_label="Factuurdatum",
+            amount_label="Totaal",
+            currency_code="EUR",
+            currency_label="Valuta",
+            country_code="NL",
+        ),
+    )
+
+    assert "invoice_number: '(?i)(?:Factuurdatum|Invoice\\s*date)" in result.content
+    assert "amount: '(?i)(?<!\\w)Subtotaal(?!\\w)" in result.content
+    assert "currency_code: '(?i)(?<!\\w)Valuta(?!\\w)" in result.content
+
+
+def test_generate_starter_template_from_sample_supports_multicolumn_header_date_layout(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.pdf"
+    sample_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Media Markt Arnhem Velperplein 13 6811 AG Arnhem\n"
+            "Factuur\n"
+            "Factuurnummer N022-97947-4999-0-21032026\n"
+            "Factuurdatum Bestelnummer Besteldatum Betaalwijze\n"
+            "21.03.2026 305091007 20.03.2026 Online betaling\n"
+            "Totaal 1.629,00 EUR"
+        ),
+    )
+    monkeypatch.setattr(
+        extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: "",
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Media Markt",
+            invoice_number_label="Factuurnummer",
+            date_label="Factuurdatum",
+            amount_label="Totaal",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    assert "date:" in result.content
+    assert r"Factuurdatum(?!\w)[\s\S]{0,160}?" in result.content
+    assert "21\\.03\\.2026\\s+305091007\\s+20\\.03\\.2026\\s+Online\\s+betaling" not in result.content

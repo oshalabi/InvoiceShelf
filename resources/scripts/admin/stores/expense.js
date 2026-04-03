@@ -19,6 +19,14 @@ export const useExpenseStore = (useWindow = false) => {
       selectedExpenses: [],
       paymentModes: [],
       showExchangeRate: false,
+      ocrPreview: {
+        status: null,
+        isRunning: false,
+        mappedFields: {},
+        flaggedFields: {},
+        unmappedFields: {},
+        message: '',
+      },
       currentExpense: {
         ...expenseStub,
       },
@@ -33,6 +41,19 @@ export const useExpenseStore = (useWindow = false) => {
       resetCurrentExpenseData() {
         this.currentExpense = {
           ...expenseStub,
+        }
+
+        this.resetOcrPreview()
+      },
+
+      resetOcrPreview() {
+        this.ocrPreview = {
+          status: null,
+          isRunning: false,
+          mappedFields: {},
+          flaggedFields: {},
+          unmappedFields: {},
+          message: '',
         }
       },
 
@@ -57,6 +78,8 @@ export const useExpenseStore = (useWindow = false) => {
           axios
             .get(`/api/v1/expenses/${id}`)
             .then((response) => {
+              this.resetOcrPreview()
+
               if (response.data) {
                 Object.assign(this.currentExpense, response.data.data)
                 this.currentExpense.selectedCurrency =
@@ -93,6 +116,57 @@ export const useExpenseStore = (useWindow = false) => {
         })
       },
 
+      previewExpenseOcr({ file, expenseId = null }) {
+        const notificationStore = useNotificationStore()
+        const formData = new FormData()
+
+        this.resetOcrPreview()
+        this.ocrPreview.isRunning = true
+
+        formData.append('receipt', file)
+
+        if (expenseId) {
+          formData.append('expense_id', expenseId)
+        }
+
+        return new Promise((resolve, reject) => {
+          axios
+            .post('/api/v1/expenses/ocr-preview', formData)
+            .then((response) => {
+              this.ocrPreview = {
+                status: response.data.status,
+                isRunning: false,
+                mappedFields: response.data.mapped_fields || {},
+                flaggedFields: response.data.flagged_fields || {},
+                unmappedFields: response.data.unmapped_fields || {},
+                message: response.data.message || '',
+              }
+
+              if (response.data.status === 'failed' || response.data.status === 'disabled') {
+                notificationStore.showNotification({
+                  type: 'info',
+                  message: response.data.message,
+                })
+              }
+
+              resolve(response)
+            })
+            .catch((err) => {
+              this.ocrPreview = {
+                status: 'failed',
+                isRunning: false,
+                mappedFields: {},
+                flaggedFields: {},
+                unmappedFields: {},
+                message: global.t('expenses.ocr.unavailable'),
+              }
+
+              handleError(err)
+              reject(err)
+            })
+        })
+      },
+
       addExpense(data) {
         const formData = utils.toFormData(data)
 
@@ -108,6 +182,8 @@ export const useExpenseStore = (useWindow = false) => {
                 type: 'success',
                 message: global.t('expenses.created_message'),
               })
+
+              this.resetOcrPreview()
 
               resolve(response)
             })
@@ -126,24 +202,28 @@ export const useExpenseStore = (useWindow = false) => {
         formData.append('_method', 'PUT')
         formData.append('is_attachment_receipt_removed', isAttachmentReceiptRemoved)
 
-        return new Promise((resolve) => {
-          axios.post(`/api/v1/expenses/${id}`, formData).then((response) => {
-            let pos = this.expenses.findIndex(
-              (expense) => expense.id === response.data.id
-            )
+        return new Promise((resolve, reject) => {
+          axios
+            .post(`/api/v1/expenses/${id}`, formData)
+            .then((response) => {
+              let pos = this.expenses.findIndex(
+                (expense) => expense.id === response.data.id
+              )
 
-            this.expenses[pos] = data.expense
+              this.expenses[pos] = data.expense
+              this.resetOcrPreview()
 
-            notificationStore.showNotification({
-              type: 'success',
-              message: global.t('expenses.updated_message'),
+              notificationStore.showNotification({
+                type: 'success',
+                message: global.t('expenses.updated_message'),
+              })
+
+              resolve(response)
             })
-
-            resolve(response)
-          })
-        }).catch((err) => {
-          handleError(err)
-          reject(err)
+            .catch((err) => {
+              handleError(err)
+              reject(err)
+            })
         })
       },
 

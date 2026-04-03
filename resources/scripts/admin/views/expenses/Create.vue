@@ -38,7 +38,7 @@
             <BaseButton
               :loading="isSaving"
               :content-loading="isFetchingInitialData"
-              :disabled="isSaving"
+              :disabled="isSaving || expenseStore.ocrPreview.isRunning"
               variant="primary"
               type="submit"
             >
@@ -100,6 +100,7 @@
 
           <BaseInputGroup
             :label="$t('expenses.expense_date')"
+            :help-text="getOcrFlaggedHelpText('expense_date')"
             :error="
               v$.currentExpense.expense_date.$error &&
               v$.currentExpense.expense_date.$errors[0].$message
@@ -118,6 +119,7 @@
 
           <BaseInputGroup
             :label="$t('expenses.expense_number')"
+            :help-text="getOcrFlaggedHelpText('expense_number')"
             :content-loading="isFetchingInitialData"
           >
             <BaseInput
@@ -131,6 +133,7 @@
 
           <BaseInputGroup
             :label="$t('expenses.amount')"
+            :help-text="getOcrFlaggedHelpText('amount')"
             :error="
               v$.currentExpense.amount.$error &&
               v$.currentExpense.amount.$errors[0].$message
@@ -151,6 +154,7 @@
           <BaseInputGroup
             :label="$t('expenses.currency')"
             :content-loading="isFetchingInitialData"
+            :help-text="getOcrFlaggedHelpText('currency_id')"
             :error="
               v$.currentExpense.currency_id.$error &&
               v$.currentExpense.currency_id.$errors[0].$message
@@ -250,13 +254,61 @@
             />
           </BaseInputGroup>
 
-          <BaseInputGroup :label="$t('expenses.receipt')">
+          <BaseInputGroup
+            :label="$t('expenses.receipt')"
+            :help-text="receiptHelpText"
+          >
             <BaseFileUploader
               v-model="expenseStore.currentExpense.receiptFiles"
               accept="image/*,.doc,.docx,.pdf,.csv,.xlsx,.xls"
               @change="onFileInputChange"
               @remove="onFileInputRemove"
             />
+
+            <div
+              v-if="expenseStore.ocrPreview.isRunning"
+              class="mt-3 rounded-md border border-blue-100 bg-blue-50 px-4 py-3"
+            >
+              <div class="flex items-center text-sm text-blue-700">
+                <BaseSpinner class="mr-2 h-4 w-4" />
+                {{ $t('expenses.ocr.processing') }}
+              </div>
+            </div>
+
+            <div
+              v-else-if="showOcrSummary"
+              :class="ocrSummaryClasses"
+              class="mt-3 rounded-md border px-4 py-4"
+            >
+              <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p class="text-sm font-medium">
+                    {{ ocrSummaryTitle }}
+                  </p>
+                  <p v-if="expenseStore.ocrPreview.message" class="mt-1 text-sm">
+                    {{ expenseStore.ocrPreview.message }}
+                  </p>
+                </div>
+
+                <BaseButton
+                  v-if="canRetryOcr"
+                  variant="primary-outline"
+                  type="button"
+                  @click="retryOcrPreview"
+                >
+                  <template #left="slotProps">
+                    <BaseIcon name="ArrowPathIcon" :class="slotProps.class" />
+                  </template>
+                  {{ $t('expenses.ocr.retry') }}
+                </BaseButton>
+              </div>
+
+              <ul v-if="ocrSummaryLines.length" class="mt-3 space-y-2 text-sm">
+                <li v-for="line in ocrSummaryLines" :key="line">
+                  {{ line }}
+                </li>
+              </ul>
+            </div>
           </BaseInputGroup>
 
           <!-- Expense Custom Fields -->
@@ -276,6 +328,7 @@
               :tabindex="6"
               variant="primary"
               type="submit"
+              :disabled="isSaving || expenseStore.ocrPreview.isRunning"
               class="flex justify-center w-full"
             >
               <template #left="slotProps">
@@ -300,7 +353,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -318,6 +371,7 @@ import { useCompanyStore } from '@/scripts/admin/stores/company'
 import { useCustomerStore } from '@/scripts/admin/stores/customer'
 import { useCustomFieldStore } from '@/scripts/admin/stores/custom-field'
 import { useModalStore } from '@/scripts/stores/modal'
+import { useNotificationStore } from '@/scripts/stores/notification'
 import ExpenseCustomFields from '@/scripts/admin/components/custom-fields/CreateCustomFields.vue'
 import CategoryModal from '@/scripts/admin/components/modal-components/CategoryModal.vue'
 import ExchangeRateConverter from '@/scripts/admin/components/estimate-invoice-common/ExchangeRateConverter.vue'
@@ -329,6 +383,7 @@ const expenseStore = useExpenseStore()
 const categoryStore = useCategoryStore()
 const customFieldStore = useCustomFieldStore()
 const modalStore = useModalStore()
+const notificationStore = useNotificationStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
@@ -405,18 +460,120 @@ const receiptDownloadUrl = computed(() =>
   isEdit.value ? `/reports/expenses/${route.params.id}/download-receipt` : ''
 )
 
+const isOcrEnabled = computed(() => {
+  return (companyStore.selectedCompanySettings.ocr_expense_enabled || 'NO') === 'YES'
+})
+
+const receiptHelpText = computed(() => {
+  if (!isOcrEnabled.value) {
+    return null
+  }
+
+  return t('expenses.ocr.supported_file_types')
+})
+
+const ocrSummaryClasses = computed(() => {
+  if (expenseStore.ocrPreview.status === 'failed') {
+    return 'border-red-200 bg-red-50 text-red-700'
+  }
+
+  return 'border-gray-200 bg-gray-50 text-gray-600'
+})
+
+const showOcrSummary = computed(() => {
+  return (
+    !!expenseStore.ocrPreview.status &&
+    !expenseStore.ocrPreview.isRunning &&
+    (
+      !!expenseStore.ocrPreview.message ||
+      Object.keys(expenseStore.ocrPreview.flaggedFields).length > 0 ||
+      Object.keys(expenseStore.ocrPreview.unmappedFields).length > 0 ||
+      Object.keys(expenseStore.ocrPreview.mappedFields).length > 0
+    )
+  )
+})
+
+const canRetryOcr = computed(() => {
+  return !!expenseStore.currentExpense.attachment_receipt
+})
+
+const ocrSummaryTitle = computed(() => {
+  if (
+    expenseStore.ocrPreview.status === 'failed' ||
+    expenseStore.ocrPreview.status === 'disabled'
+  ) {
+    return t('expenses.ocr.failed_title')
+  }
+
+  if (
+    expenseStore.ocrPreview.status === 'partial' ||
+    expenseStore.ocrPreview.status === 'needs_review'
+  ) {
+    return t('expenses.ocr.review_title')
+  }
+
+  if (expenseStore.ocrPreview.status === 'success') {
+    return t('expenses.ocr.success_title')
+  }
+
+  return t('expenses.ocr.review_title')
+})
+
+const ocrSummaryLines = computed(() => {
+  const lines = []
+  const mappedLabels = Object.keys(expenseStore.ocrPreview.mappedFields).map(
+    (field) => getExpenseFieldLabel(field)
+  )
+  const flaggedLabels = Object.keys(expenseStore.ocrPreview.flaggedFields).map(
+    (field) => getExpenseFieldLabel(field)
+  )
+  const unmappedLabels = Object.keys(expenseStore.ocrPreview.unmappedFields).map(
+    (field) => formatRawOcrFieldLabel(field)
+  )
+
+  if (mappedLabels.length) {
+    lines.push(
+      t('expenses.ocr.summary_mapped', {
+        fields: mappedLabels.join(', '),
+      })
+    )
+  }
+
+  if (flaggedLabels.length) {
+    lines.push(
+      t('expenses.ocr.summary_flagged', {
+        fields: flaggedLabels.join(', '),
+      })
+    )
+  }
+
+  if (unmappedLabels.length) {
+    lines.push(
+      t('expenses.ocr.summary_unmapped', {
+        fields: unmappedLabels.join(', '),
+      })
+    )
+  }
+
+  return lines
+})
+
 expenseStore.resetCurrentExpenseData()
 customFieldStore.resetCustomFields()
 
 loadData()
 
-function onFileInputChange(fileName, file) {
+async function onFileInputChange(fileName, file) {
   expenseStore.currentExpense.attachment_receipt = file
+  isAttachmentReceiptRemoved.value = false
+
+  await runOcrPreview(file)
 }
 
 function onFileInputRemove() {
   expenseStore.currentExpense.attachment_receipt = null
   isAttachmentReceiptRemoved.value = true
+  expenseStore.resetOcrPreview()
 }
 
 function openCategoryModal() {
@@ -431,6 +588,99 @@ function onCurrencyChange(v) {
   expenseStore.currentExpense.selectedCurrency = globalStore.currencies.find(
     (c) => c.id === v
   )
+}
+
+function getExpenseFieldLabel(field) {
+  const fieldLabels = {
+    expense_date: t('expenses.expense_date'),
+    expense_number: t('expenses.expense_number'),
+    amount: t('expenses.amount'),
+    currency_id: t('expenses.currency'),
+  }
+
+  return fieldLabels[field] || field
+}
+
+function formatRawOcrFieldLabel(field) {
+  return field.replace(/_/g, ' ')
+}
+
+function getOcrFlaggedHelpText(field) {
+  const flaggedField = expenseStore.ocrPreview.flaggedFields[field]
+
+  if (!flaggedField) {
+    return null
+  }
+
+  return t('expenses.ocr.field_review_required', {
+    confidence: Math.round((flaggedField.confidence || 0) * 100),
+  })
+}
+
+function mergeOcrMappedFields() {
+  const mappedFields = expenseStore.ocrPreview.mappedFields
+
+  if (mappedFields.expense_date) {
+    expenseStore.currentExpense.expense_date = mappedFields.expense_date
+  }
+
+  if (mappedFields.expense_number) {
+    expenseStore.currentExpense.expense_number = mappedFields.expense_number
+  }
+
+  if (mappedFields.amount !== undefined) {
+    expenseStore.currentExpense.amount = mappedFields.amount
+  }
+
+  if (mappedFields.currency_id) {
+    expenseStore.currentExpense.currency_id = mappedFields.currency_id
+    onCurrencyChange(mappedFields.currency_id)
+  }
+}
+
+function isSupportedOcrFile(file) {
+  const supportedOcrTypes = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+  ]
+
+  return supportedOcrTypes.includes(file.type)
+}
+
+async function retryOcrPreview() {
+  if (!expenseStore.currentExpense.attachment_receipt) {
+    return
+  }
+
+  await runOcrPreview(expenseStore.currentExpense.attachment_receipt)
+}
+
+async function runOcrPreview(file) {
+  expenseStore.resetOcrPreview()
+
+  if (!file || !isOcrEnabled.value) {
+    return
+  }
+
+  if (!isSupportedOcrFile(file)) {
+    notificationStore.showNotification({
+      type: 'info',
+      message: t('expenses.ocr.supported_file_types'),
+    })
+    return
+  }
+
+  try {
+    await expenseStore.previewExpenseOcr({
+      file,
+      expenseId: isEdit.value ? route.params.id : null,
+    })
+
+    mergeOcrMappedFields()
+  } catch (err) {
+    return
+  }
 }
 
 async function searchCategory(search) {
@@ -498,6 +748,10 @@ async function submitForm() {
     return
   }
 
+  if (expenseStore.ocrPreview.isRunning) {
+    return
+  }
+
   isSaving.value = true
 
   let formData = {
@@ -520,7 +774,6 @@ async function submitForm() {
     isAttachmentReceiptRemoved.value = false
     router.push('/admin/expenses')
   } catch (err) {
-    console.error(err)
     isSaving.value = false
     return
   }

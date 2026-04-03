@@ -19,6 +19,8 @@ use App\Policies\ReportPolicy;
 use App\Policies\RolePolicy;
 use App\Policies\SettingsPolicy;
 use App\Policies\UserPolicy;
+use App\Services\Ocr\ExpenseOcrServiceInterface;
+use App\Services\Ocr\HttpExpenseOcrService;
 use App\Space\InstallUtils;
 use Gate;
 use Illuminate\Support\Facades\Broadcast;
@@ -79,6 +81,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         BouncerModels::scope(new DefaultScope);
+
+        $this->app->bind(ExpenseOcrServiceInterface::class, HttpExpenseOcrService::class);
     }
 
     public function addMenus()

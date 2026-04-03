@@ -135,6 +135,40 @@
         :description="$t('settings.preferences.invoice_use_time_description')"
       />
 
+      <BaseDivider class="mt-6 mb-2" />
+
+      <BaseSwitchSection
+        v-model="ocrExpenseEnabledField"
+        :title="$t('settings.preferences.ocr_expense_enabled')"
+        :description="$t('settings.preferences.ocr_expense_enabled_description')"
+      />
+
+      <BaseInputGrid v-if="ocrExpenseEnabledField" class="mt-5">
+        <BaseInputGroup
+          :label="$t('settings.preferences.ocr_confidence_threshold')"
+          :help-text="$t('settings.preferences.ocr_confidence_threshold_description')"
+        >
+          <BaseInput
+            v-model="settingsForm.ocr_confidence_threshold"
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+          />
+        </BaseInputGroup>
+
+        <BaseInputGroup
+          :label="$t('settings.preferences.ocr_country_code')"
+          :help-text="$t('settings.preferences.ocr_country_code_description')"
+        >
+          <BaseInput
+            v-model="settingsForm.ocr_country_code"
+            type="text"
+            maxlength="2"
+          />
+        </BaseInputGroup>
+      </BaseInputGrid>
+
       <BaseButton
         :content-loading="isFetchingInitialData"
         :disabled="isSaving"
@@ -217,7 +251,14 @@ let isSaving = ref(false)
 let isDataSaving = ref(false)
 let isFetchingInitialData = ref(false)
 
-const settingsForm = reactive({ ...companyStore.selectedCompanySettings })
+const settingsForm = reactive({
+  ...companyStore.selectedCompanySettings,
+  ocr_expense_enabled: companyStore.selectedCompanySettings.ocr_expense_enabled || 'NO',
+  ocr_confidence_threshold: Number(
+    companyStore.selectedCompanySettings.ocr_confidence_threshold || 0.85
+  ),
+  ocr_country_code: companyStore.selectedCompanySettings.ocr_country_code || 'NL',
+})
 
 const retrospectiveEditOptions = computed(() => {
   return globalStore.config.retrospective_edits.map((option) => {
@@ -293,6 +334,15 @@ const discountPerItemField = computed({
       data,
       message: 'general.setting_updated',
     })
+  },
+})
+
+const ocrExpenseEnabledField = computed({
+  get: () => {
+    return settingsForm.ocr_expense_enabled === 'YES'
+  },
+  set: (newValue) => {
+    settingsForm.ocr_expense_enabled = newValue ? 'YES' : 'NO'
   },
 })
 
@@ -378,6 +428,13 @@ async function updatePreferencesData() {
 
   isSaving.value = true
   delete data.settings.link_expiry_days
+  data.settings.ocr_confidence_threshold = Number(
+    data.settings.ocr_confidence_threshold || 0.85
+  )
+  data.settings.ocr_country_code = (data.settings.ocr_country_code || 'NL')
+    .toString()
+    .trim()
+    .toUpperCase()
 
   // If language is being changed, load it dynamically first
   if (companyStore.selectedCompanySettings.language !== settingsForm.language) {

@@ -46,4 +46,10 @@ return [
         'region' => env('SES_REGION', 'us-east-1'),
     ],
 
+    'ocr' => [
+        'base_url' => env('OCR_BASE_URL'),
+        'api_key' => env('OCR_API_KEY'),
+        'timeout' => env('OCR_TIMEOUT', 5),
+    ],
+
 ];

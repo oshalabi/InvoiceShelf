@@ -679,6 +679,19 @@
     "created_message": "Expense created successfully",
     "updated_message": "Expense updated successfully",
     "deleted_message": "Expense deleted successfully | Expenses deleted successfully",
+    "ocr": {
+      "processing": "Extracting expense details from your receipt...",
+      "success_title": "OCR autofill applied",
+      "review_title": "OCR review required",
+      "failed_title": "OCR autofill unavailable",
+      "retry": "Retry OCR",
+      "supported_file_types": "OCR autofill only runs for PDF, JPG, and PNG receipts.",
+      "unavailable": "OCR service unavailable. Please try again later or enter the expense manually.",
+      "summary_mapped": "Auto-filled fields: {fields}",
+      "summary_flagged": "Fields that need review: {fields}",
+      "summary_unmapped": "Additional extracted details not mapped to the expense form: {fields}",
+      "field_review_required": "OCR confidence is below the review threshold ({confidence}%). Please verify this field."
+    },
     "categories": {
       "categories_list": "Categories List",
       "title": "Title",
@@ -1289,6 +1302,12 @@
       "company_currency_unchangeable": "Company currency cannot be changed",
       "invoice_use_time": "Use time in invoices",
       "invoice_use_time_description": "Enable this if you want to select exact invoice time.",
+      "ocr_expense_enabled": "Enable OCR expense autofill",
+      "ocr_expense_enabled_description": "Run OCR on supported expense receipts and prefill the expense form before submission.",
+      "ocr_confidence_threshold": "OCR confidence threshold",
+      "ocr_confidence_threshold_description": "Values below this threshold are flagged for manual review instead of being auto-filled.",
+      "ocr_country_code": "OCR country code",
+      "ocr_country_code_description": "Keep this set to NL for Dutch invoice processing in the current rollout.",
       "fiscal_years": {
         "january_december": "January - December",
         "february_january": "February - January",

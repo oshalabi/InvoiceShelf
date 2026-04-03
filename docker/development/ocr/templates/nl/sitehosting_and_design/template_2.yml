@@ -1,0 +1,16 @@
+issuer: 'SiteHosting and Design'
+keywords:
+  - 'SiteHosting\s+and\s+Design'
+  - 'Beschrijving\s+Kwantiteit\s+Prijs\s+Btw\-tarief\s+Totaal\s+Bedrag'
+  - 'Subtotaal\s+\(excl\.\s+BTW\)\s+€\s+229\.98'
+fields:
+  invoice_number: 'Factuur\s*[:#-]?\s*([A-Z0-9][A-Z0-9/._-]+)'
+  date: 'Factuurdatum\s*[:#-]?\s*([0-9]{2}[./-][0-9]{2}[./-][0-9]{4})'
+  amount: 'Totaal\s+\(incl\.\s+BTW\)\s*[:#-]?\s*(?:EUR|€)?\s*([0-9.,]+)'
+  currency_code: '€\s*[:#-]?\s*((€))'
+options:
+  date_formats:
+    - '%d-%m-%Y'
+    - '%d/%m/%Y'
+    - '%Y-%m-%d'
+  remove_whitespace: true

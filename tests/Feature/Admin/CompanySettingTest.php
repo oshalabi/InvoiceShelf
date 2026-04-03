@@ -108,6 +108,9 @@ test('update settings', function () {
         'tax_included' => 'YES',
         'tax_included_by_default' => 'YES',
         'discount_per_item' => 'YES',
+        'ocr_expense_enabled' => 'YES',
+        'ocr_confidence_threshold' => 0.85,
+        'ocr_country_code' => 'NL',
     ];
 
     $response = postJson('/api/v1/company/settings', ['settings' => $settings]);
@@ -194,6 +197,9 @@ test('get notification email settings', function () {
         'notify_estimate_viewed',
         'tax_per_item',
         'discount_per_item',
+        'ocr_expense_enabled',
+        'ocr_confidence_threshold',
+        'ocr_country_code',
     ];
 
     $response = getJson('/api/v1/company/settings?'.http_build_query($data));
