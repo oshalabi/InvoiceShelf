@@ -106,12 +106,13 @@ services:
       context: ./ocr
       dockerfile: Dockerfile
     environment:
-      OCR_TEMPLATE_DIR: /app/data/templates
-      OCR_TEMPLATE_DIRS: /app/templates-default,/app/data/templates
+      OCR_TEMPLATE_DIR: /app/templates
+      OCR_TEMPLATE_DIRS: /app/templates
       OCR_DEFAULT_COUNTRY_CODE: NL
       OCR_DEFAULT_LANGUAGE: eng
       OCR_DUTCH_LANGUAGE: nld+eng
       OCR_REQUIRED_FIELDS: ${OCR_REQUIRED_FIELDS:-invoice_number,date,amount,currency_code}
+      OCR_TEMPLATE_HEALING_MAX_ATTEMPTS: ${OCR_TEMPLATE_HEALING_MAX_ATTEMPTS:-3}
       OCR_DEBUG: ${OCR_DEBUG:-false}
       OCR_OPENROUTER_FALLBACK: ${OCR_OPENROUTER_FALLBACK:-false}
       OCR_AUTO_GENERATE_TEMPLATES: ${OCR_AUTO_GENERATE_TEMPLATES:-false}
@@ -120,17 +121,19 @@ services:
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
       OPENROUTER_TEMPLATE_MODEL: ${OPENROUTER_TEMPLATE_MODEL:-}
       OPENROUTER_TIMEOUT: ${OPENROUTER_TIMEOUT:-30}
-      OPENROUTER_REQUIRE_ZDR: ${OPENROUTER_REQUIRE_ZDR:-true}
+      OPENROUTER_REQUIRE_ZDR: ${OPENROUTER_REQUIRE_ZDR:-false}
+      OPENROUTER_DISABLE_REASONING: ${OPENROUTER_DISABLE_REASONING:-false}
       OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-}
       OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-InvoiceShelf OCR}
-      OPENROUTER_PDF_ENGINE: ${OPENROUTER_PDF_ENGINE:-mistral-ocr}
+      OPENROUTER_PDF_ENGINE: ${OPENROUTER_PDF_ENGINE:-native}
+      OPENROUTER_RATE_LIMIT_RETRIES: ${OPENROUTER_RATE_LIMIT_RETRIES:-2}
+      OPENROUTER_RATE_LIMIT_BACKOFF_MS: ${OPENROUTER_RATE_LIMIT_BACKOFF_MS:-2000}
     expose:
       - "8080"
     ports:
       - "4562:8080"
     volumes:
-      - ./ocr/templates:/app/templates-default:ro
-      - invoiceshelf-dev-ocr-templates:/app/data/templates
+      - ./ocr/templates:/app/templates
     healthcheck:
       test:
         - CMD
@@ -150,4 +153,3 @@ networks:
 volumes:
   invoiceshelf-dev-mysql:
   invoiceshelf-dev-minio:
-  invoiceshelf-dev-ocr-templates:

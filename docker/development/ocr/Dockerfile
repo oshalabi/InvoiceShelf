@@ -4,10 +4,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     OCR_DEBUG=false \
-    OCR_TEMPLATE_DIR=/app/data/templates \
-    OCR_TEMPLATE_DIRS=/app/templates-default,/app/data/templates \
+    OCR_TEMPLATE_DIR=/app/templates \
+    OCR_TEMPLATE_DIRS=/app/templates \
     OCR_OPENROUTER_FALLBACK=false \
-    OCR_AUTO_GENERATE_TEMPLATES=false
+    OCR_AUTO_GENERATE_TEMPLATES=false \
+    OCR_TEMPLATE_HEALING_MAX_ATTEMPTS=3
 
 WORKDIR /app
 
@@ -24,9 +25,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY ocr_service /app/ocr_service
-COPY templates /app/templates-default
-
-RUN mkdir -p /app/data/templates
+COPY templates /app/templates
 
 EXPOSE 8080
 

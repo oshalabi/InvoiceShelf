@@ -13,16 +13,26 @@ class FakeOpenRouterClient:
         self.template_response = template_response
         self.extraction_calls = 0
         self.template_calls = 0
+        self.template_contexts: list[str | None] = []
+        self.extraction_kwargs: list[dict] = []
+        self.template_kwargs: list[dict] = []
 
     def is_configured(self) -> bool:
         return True
 
     def extract_fields(self, *_args, **_kwargs):
         self.extraction_calls += 1
+        self.extraction_kwargs.append(_kwargs)
         return self.extraction_response
 
-    def generate_template_definition(self, *_args, **_kwargs):
+    def generate_template_definition(self, *_args, **kwargs):
         self.template_calls += 1
+        self.template_contexts.append(kwargs.get("correction_context"))
+        self.template_kwargs.append(kwargs)
+
+        if isinstance(self.template_response, list):
+            return self.template_response[self.template_calls - 1]
+
         return self.template_response
 
 
@@ -126,10 +136,18 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
             "issuer": "Acme B.V.",
             "keywords": ["(?i)Acme\\s+B\\.V\\."],
             "fields": {
-                "invoice_number": "(?i)Factuurnummer\\s*[:#-]?\\s*((?=[A-Z0-9/._-]*\\d)[A-Z0-9][A-Z0-9/._-]+)",
-                "date": "(?i)Factuurdatum\\s*[:#-]?\\s*([0-9]{2}-[0-9]{2}-[0-9]{4})",
-                "amount": "(?i)Totaal\\s*[:#-]?\\s*(?:EUR|€)?\\s*([0-9.,]+)",
-                "currency_code": "(?i)((?:EUR|€))",
+                "invoice_number": {
+                    "regex": "(?i)Factuurnummer\\s*[:#-]?\\s*((?=[A-Z0-9/._-]*\\d)[A-Z0-9][A-Z0-9/._-]+)"
+                },
+                "date": {
+                    "regex": "(?i)Factuurdatum\\s*[:#-]?\\s*([0-9]{2}-[0-9]{2}-[0-9]{4})"
+                },
+                "amount": {
+                    "regex": "(?i)Totaal\\s*[:#-]?\\s*(?:EUR|€)?\\s*([0-9.,]+)"
+                },
+                "currency_code": {
+                    "regex": "(?i)((?:EUR|€))"
+                },
             },
             "options": {
                 "date_formats": ["%d-%m-%Y"],
@@ -240,6 +258,118 @@ def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fa
     assert response["status"] == "success"
     assert response["fields"]["invoice_number"]["value"] == "INV-42"
     assert list(tmp_path.rglob("template_ai*.yml")) == []
+
+
+def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OCR_TEMPLATE_HEALING_MAX_ATTEMPTS", "3")
+
+    extractor = OcrExtractor(tmp_path)
+    client = FakeOpenRouterClient(
+        extraction_response={
+            "fields": {
+                "invoice_number": "INV-42",
+                "date": "2026-04-03",
+                "amount": 123.45,
+                "currency_code": "EUR",
+            },
+            "confidence": {
+                "invoice_number": 0.91,
+                "date": 0.90,
+                "amount": 0.94,
+                "currency_code": 0.95,
+            },
+            "issuer": "Acme B.V.",
+            "model": "openrouter/model",
+        },
+        template_response=[
+            {
+                "issuer": "Acme B.V.",
+                "keywords": ["(?i)Acme\\s+B\\.V\\."],
+                "fields": {
+                    "invoice_number": "(?i)Factuurnummer\\s*[:#-]?\\s*((?=[A-Z0-9/._-]*\\d)[A-Z0-9][A-Z0-9/._-]+)",
+                    "date": "(?i)Factuurdatum\\s*[:#-]?\\s*([0-9]{2}-[0-9]{2}-[0-9]{4})",
+                    "amount": "(?i)Totaal\\s*[:#-]?\\s*(?:EUR|€)?\\s*([0-9.,]+)",
+                    "currency_code": "(?i)((?:EUR|€))",
+                },
+                "options": {
+                    "date_formats": ["%d-%m-%Y"],
+                    "remove_whitespace": True,
+                },
+            },
+            {
+                "issuer": "Acme B.V.",
+                "keywords": ["(?i)Acme\\s+B\\.V\\."],
+                "fields": {
+                    "invoice_number": "(?i)Factuurnummer\\s*[:#-]?\\s*((?=[A-Z0-9/._-]*\\d)[A-Z0-9][A-Z0-9/._-]+)",
+                    "date": "(?i)Factuurdatum\\s*[:#-]?\\s*([0-9]{2}-[0-9]{2}-[0-9]{4})",
+                    "amount": "(?i)Bedrag\\s*[:#-]?\\s*(?:EUR|€)?\\s*([0-9.,]+)",
+                    "currency_code": "(?i)((?:EUR|€))",
+                },
+                "options": {
+                    "date_formats": ["%d-%m-%Y"],
+                    "remove_whitespace": True,
+                },
+            },
+        ],
+    )
+    service = OcrOrchestrator(extractor, client)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"%PDF-1.7")
+
+    responses = iter([
+        {
+            "status": "failed",
+            "message": "No matching invoice template found for this document.",
+            "fields": {},
+            "unmapped_fields": {},
+        },
+        {
+            "status": "partial",
+            "message": "Invoice matched a template, but some required fields are missing.",
+            "fields": {
+                "invoice_number": {"value": "INV-42", "confidence": 0.98},
+                "invoice_date": {"value": "2026-04-03", "confidence": 0.98},
+                "currency_code": {"value": "EUR", "confidence": 0.98},
+            },
+            "unmapped_fields": {
+                "missing_required_fields": {"value": ["total_amount"], "confidence": 1.0},
+            },
+        },
+        {
+            "status": "success",
+            "message": "Invoice fields extracted successfully.",
+            "fields": {
+                "invoice_number": {"value": "INV-42", "confidence": 0.98},
+                "invoice_date": {"value": "2026-04-03", "confidence": 0.98},
+                "total_amount": {"value": 123.45, "confidence": 0.98},
+                "currency_code": {"value": "EUR", "confidence": 0.98},
+            },
+            "unmapped_fields": {},
+        },
+    ])
+
+    monkeypatch.setattr(extractor, "extract", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(orchestrator_module, "validate_ai_template_definition", lambda **_kwargs: True)
+
+    response = service.extract(
+        invoice_path,
+        OcrProcessOptions(
+            openrouter_enabled=True,
+            auto_generate_templates=True,
+        ),
+    )
+
+    created_templates = list(tmp_path.rglob("template_ai*.yml"))
+
+    assert response["status"] == "success"
+    assert len(created_templates) == 1
+    assert client.template_calls == 2
+    assert "Known extraction result from this same invoice" in client.template_contexts[0]
+    assert '"invoice_number": "INV-42"' in client.template_contexts[0]
+    assert "Previous OCR retry result" in client.template_contexts[1]
+    assert "missing_required_fields" in client.template_contexts[1]
+    assert client.extraction_kwargs[0]["session_id"] == client.template_kwargs[0]["session_id"]
+    assert client.template_kwargs[0]["session_id"] == client.template_kwargs[1]["session_id"]
 
 
 def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path, capsys) -> None:

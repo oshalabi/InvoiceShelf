@@ -26,6 +26,7 @@ logger = get_logger("ocr_service.main")
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
 OPENROUTER_FALLBACK_ENV = "OCR_OPENROUTER_FALLBACK"
 AUTO_GENERATE_TEMPLATES_ENV = "OCR_AUTO_GENERATE_TEMPLATES"
+TEMPLATE_HEALING_MAX_ATTEMPTS_ENV = "OCR_TEMPLATE_HEALING_MAX_ATTEMPTS"
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -53,12 +54,14 @@ def _runtime_configuration_notice() -> str:
     openrouter_enabled, auto_generate_templates = _runtime_ocr_options()
     openrouter_status = "enabled" if openrouter_enabled else "disabled"
     auto_generate_status = "enabled" if auto_generate_templates else "disabled"
+    template_healing_attempts = os.getenv(TEMPLATE_HEALING_MAX_ATTEMPTS_ENV, "3")
 
     return f"""
     <div class="notice">
       <strong>Runtime config:</strong>
       OpenRouter fallback is {openrouter_status} via <code>{OPENROUTER_FALLBACK_ENV}</code>.
       Auto-generate templates is {auto_generate_status} via <code>{AUTO_GENERATE_TEMPLATES_ENV}</code>.
+      Template healing max attempts is {html.escape(template_healing_attempts)} via <code>{TEMPLATE_HEALING_MAX_ATTEMPTS_ENV}</code>.
     </div>
     """
 
@@ -99,6 +102,7 @@ log_event(
     debug_enabled=is_debug_enabled(),
     openrouter_enabled=_openrouter_fallback_enabled(),
     auto_generate_templates=_auto_generate_templates_enabled(),
+    template_healing_max_attempts=os.getenv(TEMPLATE_HEALING_MAX_ATTEMPTS_ENV, "3"),
     template_dirs=extractor.template_dirs,
     writable_template_dir=extractor.writable_template_dir,
 )

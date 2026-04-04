@@ -281,3 +281,47 @@ def test_validate_ai_template_definition_rejects_invoice_specific_keywords(monke
         country_code="NL",
         required_fields=("invoice_number", "date", "amount", "currency_code"),
     ) is False
+
+
+def test_validate_ai_template_definition_allows_supplier_vat_kvk_and_domain_keywords(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.pdf"
+    sample_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "Ozer Logistics BV\nKvK 24437828\nBTW NL822257750B01\nwww.ozerlogistics.nl\n"
+            "Invoice number 202502224\nInvoice date 07-03-2025\nTotal EUR 3345.21"
+        ),
+    )
+    monkeypatch.setattr(
+        extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: "",
+    )
+
+    assert validate_ai_template_definition(
+        definition=GeneratedTemplateDefinition(
+            issuer="Ozer Logistics BV",
+            keywords=(
+                r"(?i)Ozer\s+Logistics\s+BV",
+                r"(?i)KvK\s*(?:nr)?[:.]?\s*24437828",
+                r"(?i)ozerlogistics\.nl",
+            ),
+            fields={
+                "invoice_number": r"(?i)Invoice\s+number\s+([A-Z0-9-]+)",
+                "date": r"(?i)Invoice\s+date\s+([0-9]{2}-[0-9]{2}-[0-9]{4})",
+                "amount": r"(?i)Total\s+EUR\s+([0-9.]+)",
+                "currency_code": r"(?i)Total\s+(EUR)",
+            },
+        ),
+        sample_path=sample_path,
+        extractor=extractor,
+        country_code="NL",
+        required_fields=("invoice_number", "date", "amount", "currency_code"),
+    ) is True

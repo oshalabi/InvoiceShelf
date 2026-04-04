@@ -351,7 +351,7 @@ def validate_ai_template_definition(
         return False
 
     for keyword in definition.keywords:
-        if keyword_looks_invoice_specific(keyword):
+        if keyword_looks_invoice_specific(keyword, text_sources):
             log_event(
                 logger,
                 logging.WARNING,
@@ -359,6 +359,7 @@ def validate_ai_template_definition(
                 sample_name=sample_path.name,
                 issuer=definition.issuer,
                 reason="invoice_specific_keyword",
+                keyword=keyword,
             )
             return False
 
@@ -718,7 +719,10 @@ def looks_like_value_line(line: str) -> bool:
     return False
 
 
-def keyword_looks_invoice_specific(keyword: str) -> bool:
+def keyword_looks_invoice_specific(keyword: str, text_sources: list[str] | None = None) -> bool:
+    if keyword_looks_supplier_identifier(keyword, text_sources):
+        return False
+
     if re.search(DATE_VALUE_PATTERN, keyword):
         return True
 
@@ -733,6 +737,54 @@ def keyword_looks_invoice_specific(keyword: str) -> bool:
 
     if any(marker in keyword.lower() for marker in ("factuurnummer", "invoice_number", "bestelnummer", "leveringsnummer")):
         return True
+
+    return False
+
+
+def keyword_looks_supplier_identifier(keyword: str, text_sources: list[str] | None = None) -> bool:
+    lowered_keyword = keyword.lower()
+    digit_count = len(re.findall(r"\d", keyword))
+
+    if extract_domain_from_text(keyword):
+        return True
+
+    if "@" in keyword and re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", keyword, re.IGNORECASE):
+        return True
+
+    if "kvk" in lowered_keyword and digit_count >= 8:
+        return True
+
+    if any(marker in lowered_keyword for marker in ("btw", "vat")) and digit_count >= 8:
+        return True
+
+    if "nl" in lowered_keyword and "b" in lowered_keyword and digit_count >= 8:
+        return True
+
+    if not text_sources:
+        return False
+
+    keyword_without_flags = re.sub(r"\(\?[a-z]+\)", "", keyword, flags=re.IGNORECASE)
+    normalized_literal = normalize_space(
+        keyword_without_flags
+        .replace(r"\s+", " ")
+        .replace(r"\s*", " ")
+        .replace(r"\.", ".")
+        .replace("\\", "")
+    )
+
+    if not normalized_literal:
+        return False
+
+    for text in text_sources:
+        for raw_line in text.splitlines():
+            line = normalize_space(raw_line)
+            lowered_line = line.lower()
+
+            if normalized_literal.lower() not in lowered_line:
+                continue
+
+            if any(marker in lowered_line for marker in ("kvk", "btw", "vat", "www.", "http://", "https://", "@")):
+                return True
 
     return False
 
