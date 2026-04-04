@@ -215,6 +215,21 @@ def test_regex_template_fallback_matches_text_input_when_invoice2data_returns_no
     }
 
 
+def test_score_payload_match_returns_full_priority_tuple() -> None:
+    extractor = OcrExtractor(Path(__file__).resolve().parent.parent / "templates")
+
+    score = extractor._score_payload_match(
+        {
+            "invoice_number": "ACME-42",
+            "date": "03-04-2026",
+            "amount": "123,45",
+            "currency_code": "EUR",
+        }
+    )
+
+    assert score == (4, 1, 1, 1, 4)
+
+
 def test_repair_payload_fixes_invalid_invoice_number_and_missing_currency() -> None:
     extractor = OcrExtractor(Path(__file__).resolve().parent.parent / "templates")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -9,11 +10,13 @@ import subprocess
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from typing import Any
 
 import yaml
 
 from ocr_service.fields import DEFAULT_REQUIRED_FIELDS, public_field_name
+from ocr_service.logger import get_logger, log_event
 
 
 class OcrExtractor:
@@ -22,6 +25,7 @@ class OcrExtractor:
     GENERIC_ISSUER_VALUES = frozenset({"", "n/a", "na", "onbekend", "supplier", "unknown", "vendor"})
     DATE_VALUE_PATTERN = r"([0-9]{2}[./-][0-9]{2}[./-][0-9]{4})"
     AMOUNT_VALUE_PATTERN = r"([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]+[.,][0-9]{2})"
+    logger = get_logger("ocr_service.extractor")
 
     def __init__(
         self,
@@ -42,49 +46,113 @@ class OcrExtractor:
         country_code = (country_code or os.getenv("OCR_DEFAULT_COUNTRY_CODE", "NL")).upper()
         required_fields = required_fields or DEFAULT_REQUIRED_FIELDS
         responses: list[dict[str, Any]] = []
+        started_at = perf_counter()
 
-        if file_path.suffix.lower() == ".pdf":
-            searchable_text = self._load_input_text(file_path, "pdftotext")
-            searchable_payload = self._run_invoice2data(file_path, input_reader="pdftotext")
+        log_event(
+            self.logger,
+            logging.INFO,
+            "extractor.extract.started",
+            file_name=file_path.name,
+            country_code=country_code,
+            required_fields=required_fields,
+        )
 
-            if searchable_payload:
-                searchable_payload = self._repair_payload(searchable_payload, searchable_text)
-                searchable_response = self._build_response(
-                    searchable_payload,
-                    source_reader="pdftotext",
-                    country_code=country_code,
-                    required_fields=required_fields,
-                )
-                responses.append(searchable_response)
+        try:
+            if file_path.suffix.lower() == ".pdf":
+                searchable_text = self._load_input_text(file_path, "pdftotext")
+                searchable_payload = self._run_invoice2data(file_path, input_reader="pdftotext")
 
-                if searchable_response["status"] == "success":
-                    return searchable_response
+                if searchable_payload:
+                    searchable_payload = self._repair_payload(searchable_payload, searchable_text)
+                    searchable_response = self._build_response(
+                        searchable_payload,
+                        source_reader="pdftotext",
+                        country_code=country_code,
+                        required_fields=required_fields,
+                    )
+                    responses.append(searchable_response)
 
-        ocr_text = self._extract_ocr_text(file_path, self._language_for_country(country_code))
+                    log_event(
+                        self.logger,
+                        logging.INFO,
+                        "extractor.searchable.completed",
+                        file_name=file_path.name,
+                        status=searchable_response["status"],
+                        field_names=sorted(searchable_response["fields"].keys()),
+                    )
 
-        if ocr_text.strip():
-            with TemporaryDirectory() as temporary_directory:
-                temporary_path = Path(temporary_directory)
-                extracted_text_path = temporary_path / f"{file_path.stem}.txt"
-                extracted_text_path.write_text(ocr_text, encoding="utf-8")
+                    if searchable_response["status"] == "success":
+                        log_event(
+                            self.logger,
+                            logging.INFO,
+                            "extractor.extract.completed",
+                            file_name=file_path.name,
+                            status=searchable_response["status"],
+                            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                        )
+                        return searchable_response
 
-                ocr_payload = self._run_invoice2data(extracted_text_path, input_reader="text")
+            ocr_text = self._extract_ocr_text(file_path, self._language_for_country(country_code))
 
-                if ocr_payload:
-                    ocr_payload = self._repair_payload(ocr_payload, ocr_text)
-                    responses.append(
-                        self._build_response(
+            if ocr_text.strip():
+                with TemporaryDirectory() as temporary_directory:
+                    temporary_path = Path(temporary_directory)
+                    extracted_text_path = temporary_path / f"{file_path.stem}.txt"
+                    extracted_text_path.write_text(ocr_text, encoding="utf-8")
+
+                    ocr_payload = self._run_invoice2data(extracted_text_path, input_reader="text")
+
+                    if ocr_payload:
+                        ocr_payload = self._repair_payload(ocr_payload, ocr_text)
+                        ocr_response = self._build_response(
                             ocr_payload,
                             source_reader="tesseract",
                             country_code=country_code,
                             required_fields=required_fields,
                         )
-                    )
+                        responses.append(ocr_response)
+                        log_event(
+                            self.logger,
+                            logging.INFO,
+                            "extractor.ocr.completed",
+                            file_name=file_path.name,
+                            status=ocr_response["status"],
+                            field_names=sorted(ocr_response["fields"].keys()),
+                        )
 
-        if responses:
-            return max(responses, key=self._score_response)
+            if responses:
+                selected_response = max(responses, key=self._score_response)
+                log_event(
+                    self.logger,
+                    logging.INFO,
+                    "extractor.extract.completed",
+                    file_name=file_path.name,
+                    status=selected_response["status"],
+                    response_count=len(responses),
+                    duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                )
+                return selected_response
 
-        return self._failed_response(country_code, required_fields)
+            failed_response = self._failed_response(country_code, required_fields)
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "extractor.extract.completed",
+                file_name=file_path.name,
+                status=failed_response["status"],
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return failed_response
+        except Exception:
+            log_event(
+                self.logger,
+                logging.ERROR,
+                "extractor.extract.failed",
+                file_name=file_path.name,
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            self.logger.exception("extractor.extract.failed")
+            raise
 
     def template_count(self) -> int:
         return len(list(self._iter_templates()))
@@ -121,6 +189,16 @@ class OcrExtractor:
         return os.getenv("OCR_DEFAULT_LANGUAGE", "eng")
 
     def _run_invoice2data(self, input_path: Path, input_reader: str) -> dict[str, Any] | None:
+        started_at = perf_counter()
+
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.invoice2data.started",
+            input_name=input_path.name,
+            input_reader=input_reader,
+        )
+
         with TemporaryDirectory() as temporary_directory:
             flattened_template_dir = Path(temporary_directory) / "templates"
             flattened_template_dir.mkdir(parents=True, exist_ok=True)
@@ -147,21 +225,64 @@ class OcrExtractor:
                 check=False,
             )
 
+        log_event(
+            self.logger,
+            logging.INFO,
+            "extractor.invoice2data.completed",
+            input_name=input_path.name,
+            input_reader=input_reader,
+            return_code=process.returncode,
+            stdout_present=bool(process.stdout.strip()),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+
         if process.returncode != 0 or not process.stdout.strip():
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "extractor.invoice2data.fallback",
+                input_name=input_path.name,
+                input_reader=input_reader,
+                reason="empty_or_failed_process",
+            )
             return self._run_template_regex_fallback(input_path, input_reader)
 
         try:
             payload = json.loads(process.stdout)
         except json.JSONDecodeError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "extractor.invoice2data.fallback",
+                input_name=input_path.name,
+                input_reader=input_reader,
+                reason="invalid_json",
+            )
             return self._run_template_regex_fallback(input_path, input_reader)
 
         if isinstance(payload, list):
             if not payload:
+                log_event(
+                    self.logger,
+                    logging.DEBUG,
+                    "extractor.invoice2data.fallback",
+                    input_name=input_path.name,
+                    input_reader=input_reader,
+                    reason="empty_payload",
+                )
                 return self._run_template_regex_fallback(input_path, input_reader)
 
             payload = payload[0]
 
         if not isinstance(payload, dict):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "extractor.invoice2data.fallback",
+                input_name=input_path.name,
+                input_reader=input_reader,
+                reason="non_object_payload",
+            )
             return self._run_template_regex_fallback(input_path, input_reader)
 
         return payload
@@ -171,6 +292,14 @@ class OcrExtractor:
         input_path: Path,
         input_reader: str,
     ) -> dict[str, Any] | None:
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.regex_fallback.started",
+            input_name=input_path.name,
+            input_reader=input_reader,
+        )
+
         if input_reader != "text":
             return None
 
@@ -188,11 +317,26 @@ class OcrExtractor:
                 candidate_payloads.append(self._repair_payload(payload, text))
 
         if not candidate_payloads:
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "extractor.regex_fallback.completed",
+                input_name=input_path.name,
+                matched_templates=0,
+            )
             return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "extractor.regex_fallback.completed",
+            input_name=input_path.name,
+            matched_templates=len(candidate_payloads),
+        )
 
         return max(candidate_payloads, key=self._score_payload_match)
 
-    def _score_payload_match(self, payload: dict[str, Any]) -> tuple[int, int]:
+    def _score_payload_match(self, payload: dict[str, Any]) -> tuple[int, int, int, int, int]:
         mapped_priority = [
             "amount",
             "total_amount",
@@ -230,6 +374,13 @@ class OcrExtractor:
             try:
                 return input_path.read_text(encoding="utf-8")
             except OSError:
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "extractor.input_text.failed",
+                    input_name=input_path.name,
+                    input_reader=input_reader,
+                )
                 return ""
 
         if input_reader != "pdftotext":
@@ -247,6 +398,14 @@ class OcrExtractor:
         )
 
         if process.returncode != 0:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "extractor.input_text.failed",
+                input_name=input_path.name,
+                input_reader=input_reader,
+                return_code=process.returncode,
+            )
             return ""
 
         return process.stdout
@@ -316,6 +475,8 @@ class OcrExtractor:
         return match.group(0)
 
     def _extract_ocr_text(self, file_path: Path, language: str) -> str:
+        started_at = perf_counter()
+
         with TemporaryDirectory() as temporary_directory:
             working_directory = Path(temporary_directory)
             images = (
@@ -344,10 +505,24 @@ class OcrExtractor:
                 if process.returncode == 0 and process.stdout.strip():
                     extracted_pages.append(process.stdout.strip())
 
-            return "\n\n".join(extracted_pages)
+            extracted_text = "\n\n".join(extracted_pages)
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "extractor.tesseract.completed",
+            file_name=file_path.name,
+            language=language,
+            image_count=len(images),
+            extracted_page_count=len(extracted_pages),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+
+        return extracted_text
 
     def _convert_pdf_to_images(self, file_path: Path, output_directory: Path) -> list[Path]:
         output_prefix = output_directory / "page"
+        started_at = perf_counter()
 
         process = subprocess.run(
             [
@@ -362,9 +537,28 @@ class OcrExtractor:
         )
 
         if process.returncode != 0:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "extractor.pdf_to_images.failed",
+                file_name=file_path.name,
+                return_code=process.returncode,
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
             return []
 
-        return sorted(output_directory.glob("page-*.png"))
+        image_paths = sorted(output_directory.glob("page-*.png"))
+
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.pdf_to_images.completed",
+            file_name=file_path.name,
+            image_count=len(image_paths),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+
+        return image_paths
 
     def _build_response(
         self,
@@ -496,6 +690,16 @@ class OcrExtractor:
                 "confidence": confidence,
             }
 
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.response.built",
+            source_reader=source_reader,
+            status=status,
+            field_names=sorted(fields.keys()),
+            missing_required_fields=sorted(missing_required_fields),
+        )
+
         return {
             "status": status,
             "message": message,
@@ -618,6 +822,7 @@ class OcrExtractor:
 
     def _repair_payload(self, payload: dict[str, Any], text: str) -> dict[str, Any]:
         repaired_payload = dict(payload)
+        changed_fields: set[str] = set()
 
         if not text.strip():
             return repaired_payload
@@ -629,6 +834,7 @@ class OcrExtractor:
 
             if inferred_issuer:
                 repaired_payload["issuer"] = inferred_issuer
+                changed_fields.add("issuer")
 
         invoice_number = self._normalize_invoice_number(
             self._first_value(repaired_payload, ["invoice_number", "invoice_no", "invoice_id", "number"])
@@ -639,6 +845,7 @@ class OcrExtractor:
 
             if inferred_invoice_number:
                 repaired_payload["invoice_number"] = inferred_invoice_number
+                changed_fields.add("invoice_number")
 
         invoice_date = self._first_value(repaired_payload, ["invoice_date", "date"])
 
@@ -647,6 +854,7 @@ class OcrExtractor:
 
             if inferred_invoice_date:
                 repaired_payload["date"] = inferred_invoice_date
+                changed_fields.add("date")
 
         total_amount = self._normalize_amount(
             self._first_value(repaired_payload, ["total_amount", "amount", "invoice_total", "total"])
@@ -657,6 +865,7 @@ class OcrExtractor:
 
             if inferred_total_amount is not None:
                 repaired_payload["amount"] = inferred_total_amount
+                changed_fields.add("amount")
 
         currency_code = self._normalize_currency(
             self._first_value(repaired_payload, ["currency_code", "currency", "currency_symbol"])
@@ -667,6 +876,15 @@ class OcrExtractor:
 
             if inferred_currency_code:
                 repaired_payload["currency_code"] = inferred_currency_code
+                changed_fields.add("currency_code")
+
+        if changed_fields:
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "extractor.payload.repaired",
+                changed_fields=sorted(changed_fields),
+            )
 
         return repaired_payload
 
@@ -846,6 +1064,8 @@ class OcrExtractor:
         return score
 
     def _flatten_templates(self, destination_directory: Path) -> None:
+        copied_templates = 0
+
         for template_path in self._iter_templates():
             root_directory = next(
                 template_root
@@ -854,6 +1074,15 @@ class OcrExtractor:
             )
             flattened_name = "__".join((root_directory.name, *template_path.relative_to(root_directory).parts))
             shutil.copy2(template_path, destination_directory / flattened_name)
+            copied_templates += 1
+
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.templates.flattened",
+            destination_directory=destination_directory,
+            copied_templates=copied_templates,
+        )
 
     def _iter_templates(self) -> list[Path]:
         return sorted(

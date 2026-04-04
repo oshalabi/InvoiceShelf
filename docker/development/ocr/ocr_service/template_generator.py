@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.fields import DEFAULT_REQUIRED_FIELDS
+from ocr_service.logger import get_logger, log_event
 
 GENERIC_ISSUER_VALUES = {
     "",
@@ -21,6 +23,7 @@ GENERIC_ISSUER_VALUES = {
 DATE_VALUE_PATTERN = r"([0-9]{2}[./-][0-9]{2}[./-][0-9]{4})"
 INVOICE_NUMBER_VALUE_PATTERN = r"((?=[A-Z0-9/._-]*\d)[A-Z0-9][A-Z0-9/._-]+)"
 AMOUNT_VALUE_PATTERN = r"([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]+[.,][0-9]{2})"
+logger = get_logger("ocr_service.template_generator")
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,15 @@ def generate_starter_template_from_sample(
     spec: TemplateSpec,
     output_path: Path | None = None,
 ) -> TemplateGenerationResult:
+    log_event(
+        logger,
+        logging.INFO,
+        "template_generator.started",
+        sample_name=sample_path.name,
+        issuer=spec.issuer,
+        country_code=spec.country_code,
+    )
+
     if sample_path.suffix.lower() not in extractor.SUPPORTED_EXTENSIONS:
         raise ValueError("Unsupported file type. Please upload PDF, JPG, or PNG.")
 
@@ -85,6 +97,16 @@ def generate_starter_template_from_sample(
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(content, encoding="utf-8")
 
+    log_event(
+        logger,
+        logging.INFO,
+        "template_generator.completed",
+        sample_name=sample_path.name,
+        output_path=destination,
+        missing_labels=missing_labels,
+        keyword_count=len(definition.keywords),
+    )
+
     return TemplateGenerationResult(
         output_path=destination,
         content=content,
@@ -109,6 +131,15 @@ def collect_text_sources(sample_path: Path, extractor: OcrExtractor, country_cod
 
         if pdf_text.strip():
             text_sources.append(pdf_text)
+
+    log_event(
+        logger,
+        logging.DEBUG,
+        "template_generator.text_sources.collected",
+        sample_name=sample_path.name,
+        source_count=len(text_sources),
+        source_lengths=[len(text_source) for text_source in text_sources],
+    )
 
     return text_sources
 
@@ -309,11 +340,36 @@ def validate_ai_template_definition(
         extractor=extractor,
         required_fields=required_fields,
     ):
+        log_event(
+            logger,
+            logging.WARNING,
+            "template_generator.ai_validation.failed",
+            sample_name=sample_path.name,
+            issuer=definition.issuer,
+            reason="template_did_not_match_required_fields",
+        )
         return False
 
     for keyword in definition.keywords:
         if keyword_looks_invoice_specific(keyword):
+            log_event(
+                logger,
+                logging.WARNING,
+                "template_generator.ai_validation.failed",
+                sample_name=sample_path.name,
+                issuer=definition.issuer,
+                reason="invoice_specific_keyword",
+            )
             return False
+
+    log_event(
+        logger,
+        logging.INFO,
+        "template_generator.ai_validation.completed",
+        sample_name=sample_path.name,
+        issuer=definition.issuer,
+        keyword_count=len(definition.keywords),
+    )
 
     return True
 

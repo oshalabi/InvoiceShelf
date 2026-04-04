@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.fields import public_field_name
+from ocr_service.logger import get_logger, log_event
 from ocr_service.openrouter_client import OpenRouterClient
 from ocr_service.template_generator import (
     GeneratedTemplateDefinition,
@@ -27,18 +30,58 @@ class OcrOrchestrator:
     def __init__(self, extractor: OcrExtractor, openrouter_client: OpenRouterClient) -> None:
         self.extractor = extractor
         self.openrouter_client = openrouter_client
+        self.logger = get_logger("ocr_service.orchestrator")
 
     def extract(self, file_path: Path, options: OcrProcessOptions) -> dict[str, Any]:
+        started_at = perf_counter()
+        log_event(
+            self.logger,
+            logging.INFO,
+            "orchestrator.extract.started",
+            file_name=file_path.name,
+            country_code=options.country_code,
+            required_fields=options.required_fields,
+            openrouter_enabled=options.openrouter_enabled,
+            auto_generate_templates=options.auto_generate_templates,
+        )
+
         local_response = self.extractor.extract(
             file_path,
             country_code=options.country_code,
             required_fields=options.required_fields,
         )
 
+        log_event(
+            self.logger,
+            logging.INFO,
+            "orchestrator.local.completed",
+            file_name=file_path.name,
+            status=local_response.get("status"),
+        )
+
         if local_response["status"] == "success":
+            log_event(
+                self.logger,
+                logging.INFO,
+                "orchestrator.extract.completed",
+                file_name=file_path.name,
+                final_source="local",
+                status=local_response.get("status"),
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
             return local_response
 
         if not options.openrouter_enabled or not self.openrouter_client.is_configured():
+            log_event(
+                self.logger,
+                logging.INFO,
+                "orchestrator.extract.completed",
+                file_name=file_path.name,
+                final_source="local",
+                status=local_response.get("status"),
+                reason="openrouter_disabled_or_unconfigured",
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
             return local_response
 
         openrouter_extraction = self.openrouter_client.extract_fields(
@@ -48,8 +91,26 @@ class OcrOrchestrator:
         )
         openrouter_response = self._build_openrouter_response(openrouter_extraction, options)
 
+        log_event(
+            self.logger,
+            logging.INFO,
+            "orchestrator.openrouter_extract.completed",
+            file_name=file_path.name,
+            status=openrouter_response.get("status"),
+        )
+
         if local_response["status"] == "partial":
-            return self._merge_missing_required_fields(local_response, openrouter_response, options)
+            merged_response = self._merge_missing_required_fields(local_response, openrouter_response, options)
+            log_event(
+                self.logger,
+                logging.INFO,
+                "orchestrator.extract.completed",
+                file_name=file_path.name,
+                final_source="merged",
+                status=merged_response.get("status"),
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return merged_response
 
         if local_response["status"] == "failed" and options.auto_generate_templates:
             generated_template = self.openrouter_client.generate_template_definition(
@@ -66,11 +127,38 @@ class OcrOrchestrator:
                 )
 
                 if retry_response["status"] != "failed":
+                    log_event(
+                        self.logger,
+                        logging.INFO,
+                        "orchestrator.extract.completed",
+                        file_name=file_path.name,
+                        final_source="generated_template_retry",
+                        status=retry_response.get("status"),
+                        duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                    )
                     return retry_response
 
         if openrouter_response["status"] != "failed":
+            log_event(
+                self.logger,
+                logging.INFO,
+                "orchestrator.extract.completed",
+                file_name=file_path.name,
+                final_source="openrouter",
+                status=openrouter_response.get("status"),
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
             return openrouter_response
 
+        log_event(
+            self.logger,
+            logging.WARNING,
+            "orchestrator.extract.completed",
+            file_name=file_path.name,
+            final_source="local",
+            status=local_response.get("status"),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
         return local_response
 
     def _build_openrouter_response(
@@ -173,6 +261,13 @@ class OcrOrchestrator:
         definition = self._normalize_generated_template(generated_template, options.required_fields)
 
         if definition is None:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "orchestrator.template_generation.rejected",
+                file_name=sample_path.name,
+                reason="invalid_template_payload",
+            )
             return False
 
         if not validate_ai_template_definition(
@@ -182,6 +277,14 @@ class OcrOrchestrator:
             country_code=options.country_code,
             required_fields=options.required_fields,
         ):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "orchestrator.template_generation.rejected",
+                file_name=sample_path.name,
+                issuer=definition.issuer,
+                reason="validation_failed",
+            )
             return False
 
         output_path = default_ai_template_path(
@@ -191,6 +294,15 @@ class OcrOrchestrator:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(render_template_content(definition), encoding="utf-8")
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "orchestrator.template_generation.saved",
+            file_name=sample_path.name,
+            issuer=definition.issuer,
+            output_path=output_path,
+        )
 
         return True
 

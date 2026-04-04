@@ -112,6 +112,9 @@ services:
       OCR_DEFAULT_LANGUAGE: eng
       OCR_DUTCH_LANGUAGE: nld+eng
       OCR_REQUIRED_FIELDS: ${OCR_REQUIRED_FIELDS:-invoice_number,date,amount,currency_code}
+      OCR_DEBUG: ${OCR_DEBUG:-false}
+      OCR_OPENROUTER_FALLBACK: ${OCR_OPENROUTER_FALLBACK:-false}
+      OCR_AUTO_GENERATE_TEMPLATES: ${OCR_AUTO_GENERATE_TEMPLATES:-false}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1/chat/completions}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}

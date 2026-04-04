@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from ocr_service.main import app
 from ocr_service import main
+from ocr_service import logger as logger_module
 
 
 client = TestClient(app)
@@ -47,13 +49,20 @@ def test_extract_rejects_empty_file() -> None:
     assert response.json()["detail"] == "Uploaded file is empty."
 
 
-def test_playground_page_renders_forms() -> None:
+def test_playground_page_renders_forms(monkeypatch) -> None:
+    monkeypatch.setenv("OCR_OPENROUTER_FALLBACK", "true")
+    monkeypatch.setenv("OCR_AUTO_GENERATE_TEMPLATES", "false")
+
     response = client.get("/")
 
     assert response.status_code == 200
     assert "OCR Playground" in response.text
     assert "/playground/result" in response.text
     assert "/template-generator" in response.text
+    assert "OCR_OPENROUTER_FALLBACK" in response.text
+    assert "OCR_AUTO_GENERATE_TEMPLATES" in response.text
+    assert 'name="openrouter_enabled"' not in response.text
+    assert 'name="auto_generate_templates"' not in response.text
 
 
 def test_extract_delegates_to_extractor(monkeypatch) -> None:
@@ -89,6 +98,80 @@ def test_extract_delegates_to_extractor(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == expected_response
+
+
+def test_extract_reads_runtime_flags_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OCR_OPENROUTER_FALLBACK", "true")
+    monkeypatch.setenv("OCR_AUTO_GENERATE_TEMPLATES", "yes")
+
+    expected_response = {
+        "status": "success",
+        "message": "Invoice fields extracted successfully.",
+        "fields": {
+            "invoice_number": {"value": "DEMO-42", "confidence": 0.98},
+        },
+        "unmapped_fields": {},
+    }
+
+    def fake_extract(input_path: Path, options) -> dict:
+        assert input_path.suffix == ".pdf"
+        assert options.openrouter_enabled is True
+        assert options.auto_generate_templates is True
+        return expected_response
+
+    monkeypatch.setattr(main.orchestrator, "extract", fake_extract)
+
+    response = client.post(
+        "/extract",
+        files={
+            "file": ("invoice.pdf", b"%PDF-1.7", "application/pdf"),
+        },
+        data={"country_code": "NL"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == expected_response
+
+
+def test_extract_logs_request_lifecycle(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("OCR_DEBUG", "true")
+    logger_module.configure_logging(force=True)
+    capsys.readouterr()
+
+    expected_response = {
+        "status": "success",
+        "message": "Invoice fields extracted successfully.",
+        "fields": {
+            "invoice_number": {"value": "DEMO-42", "confidence": 0.98},
+        },
+        "unmapped_fields": {},
+    }
+
+    monkeypatch.setattr(main.orchestrator, "extract", lambda *_args, **_kwargs: expected_response)
+
+    response = client.post(
+        "/extract",
+        files={
+            "file": ("invoice.pdf", b"%PDF-1.7", "application/pdf"),
+        },
+        data={"country_code": "NL"},
+    )
+
+    assert response.status_code == 200
+
+    captured_logs = [
+        json.loads(line)
+        for line in capsys.readouterr().err.splitlines()
+        if line.strip()
+    ]
+    logged_actions = {entry["action"] for entry in captured_logs}
+
+    assert {
+        "http.extract.received",
+        "extract.run.started",
+        "extract.run.completed",
+        "http.extract.completed",
+    }.issubset(logged_actions)
 
 
 def test_playground_result_renders_json_payload(monkeypatch) -> None:

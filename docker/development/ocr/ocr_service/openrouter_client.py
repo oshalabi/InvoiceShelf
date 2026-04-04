@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from urllib import error, request
+
+from ocr_service.logger import get_logger, log_event
 
 
 class OpenRouterClient:
     def __init__(self) -> None:
+        self.logger = get_logger("ocr_service.openrouter")
         self.base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
         self.api_key = os.getenv("OPENROUTER_API_KEY", "")
         self.model = os.getenv("OPENROUTER_MODEL", "")
@@ -20,6 +25,17 @@ class OpenRouterClient:
         self.http_referer = os.getenv("OPENROUTER_HTTP_REFERER", "")
         self.app_name = os.getenv("OPENROUTER_APP_NAME", "InvoiceShelf OCR")
         self.pdf_engine = os.getenv("OPENROUTER_PDF_ENGINE", "mistral-ocr")
+
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "openrouter.config.loaded",
+            base_url=self.base_url,
+            model_configured=bool(self.model),
+            template_model_configured=bool(self.template_model),
+            require_zdr=self.require_zdr,
+            pdf_engine=self.pdf_engine,
+        )
 
     def is_configured(self) -> bool:
         return bool(self.api_key and self.model)
@@ -31,7 +47,24 @@ class OpenRouterClient:
         required_fields: tuple[str, ...],
     ) -> dict[str, Any] | None:
         if not self.is_configured():
+            log_event(
+                self.logger,
+                logging.INFO,
+                "openrouter.extract.skipped",
+                file_name=file_path.name,
+                reason="client_not_configured",
+            )
             return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "openrouter.extract.started",
+            file_name=file_path.name,
+            country_code=country_code,
+            required_fields=required_fields,
+            model=self.model,
+        )
 
         payload = {
             "model": self.model,
@@ -62,19 +95,47 @@ class OpenRouterClient:
         response_payload = self._request(payload)
 
         if response_payload is None:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.extract.failed",
+                file_name=file_path.name,
+                reason="request_failed",
+            )
             return None
 
         content = self._extract_response_content(response_payload)
 
         if content is None:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.extract.failed",
+                file_name=file_path.name,
+                reason="missing_response_content",
+            )
             return None
 
         try:
             parsed_content = json.loads(content)
         except json.JSONDecodeError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.extract.failed",
+                file_name=file_path.name,
+                reason="invalid_json_content",
+            )
             return None
 
         if not isinstance(parsed_content, dict):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.extract.failed",
+                file_name=file_path.name,
+                reason="non_object_content",
+            )
             return None
 
         values = parsed_content.get("fields", {})
@@ -82,7 +143,23 @@ class OpenRouterClient:
         issuer = parsed_content.get("issuer")
 
         if not isinstance(values, dict) or not isinstance(confidences, dict):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.extract.failed",
+                file_name=file_path.name,
+                reason="invalid_field_payload",
+            )
             return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "openrouter.extract.completed",
+            file_name=file_path.name,
+            field_names=sorted(values.keys()),
+            model=self.model,
+        )
 
         return {
             "fields": values,
@@ -98,7 +175,24 @@ class OpenRouterClient:
         required_fields: tuple[str, ...],
     ) -> dict[str, Any] | None:
         if not self.api_key or not self.template_model:
+            log_event(
+                self.logger,
+                logging.INFO,
+                "openrouter.template_generation.skipped",
+                file_name=file_path.name,
+                reason="client_not_configured",
+            )
             return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "openrouter.template_generation.started",
+            file_name=file_path.name,
+            country_code=country_code,
+            required_fields=required_fields,
+            model=self.template_model,
+        )
 
         payload = {
             "model": self.template_model,
@@ -129,24 +223,62 @@ class OpenRouterClient:
         response_payload = self._request(payload)
 
         if response_payload is None:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.template_generation.failed",
+                file_name=file_path.name,
+                reason="request_failed",
+            )
             return None
 
         content = self._extract_response_content(response_payload)
 
         if content is None:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.template_generation.failed",
+                file_name=file_path.name,
+                reason="missing_response_content",
+            )
             return None
 
         try:
             parsed_content = json.loads(content)
         except json.JSONDecodeError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.template_generation.failed",
+                file_name=file_path.name,
+                reason="invalid_json_content",
+            )
             return None
 
         if not isinstance(parsed_content, dict):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.template_generation.failed",
+                file_name=file_path.name,
+                reason="non_object_content",
+            )
             return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "openrouter.template_generation.completed",
+            file_name=file_path.name,
+            keyword_count=len(parsed_content.get("keywords", [])) if isinstance(parsed_content.get("keywords"), list) else 0,
+            model=self.template_model,
+        )
 
         return parsed_content
 
     def _request(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        started_at = perf_counter()
         request_payload = json.dumps(payload).encode("utf-8")
         http_request = request.Request(
             self.base_url,
@@ -157,16 +289,63 @@ class OpenRouterClient:
 
         try:
             with request.urlopen(http_request, timeout=self.timeout) as response:
+                status_code = getattr(response, "status", response.getcode())
                 raw_payload = response.read().decode("utf-8")
-        except (error.HTTPError, error.URLError, TimeoutError):
+        except error.HTTPError as exception:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.request.failed",
+                status_code=exception.code,
+                reason="http_error",
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
             return None
+        except error.URLError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.request.failed",
+                reason="url_error",
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return None
+        except TimeoutError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.request.failed",
+                reason="timeout",
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return None
+
+        log_event(
+            self.logger,
+            logging.INFO,
+            "openrouter.request.completed",
+            status_code=status_code,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
 
         try:
             parsed_payload = json.loads(raw_payload)
         except json.JSONDecodeError:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.request.failed",
+                reason="invalid_json_response",
+            )
             return None
 
         if not isinstance(parsed_payload, dict):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "openrouter.request.failed",
+                reason="non_object_response",
+            )
             return None
 
         return parsed_payload

@@ -32,6 +32,14 @@ This project has domain-specific skills available. You MUST activate the relevan
 - `tailwindcss-development` — Always invoke when the user's message includes 'tailwind' in any form. Also invoke for: building responsive grid layouts (multi-column card grids, product grids), flex/grid page structures (dashboards with sidebars, fixed topbars, mobile-toggle navs), styling UI components (cards, tables, navbars, pricing sections, forms, inputs, badges), adding dark mode variants, fixing spacing or typography, and Tailwind v3/v4 work. The core use case: writing or fixing Tailwind utility classes in HTML templates (Blade, JSX, Vue). Skip for backend PHP logic, database queries, API routes, JavaScript with no HTML/CSS component, CSS file audits, build tool configuration, and vanilla CSS.
 - `medialibrary-development` — Build and work with spatie/laravel-medialibrary features including associating files with Eloquent models, defining media collections and conversions, generating responsive images, and retrieving media URLs and paths.
 
+## Commands
+
+- `composer run dev` starts Laravel, queue listening, log streaming, and Vite together.
+- `php artisan test --compact` runs the PHP test suite; use `--filter` for a focused run.
+- `make test` is available and runs Pest when `vendor/bin/pest` exists.
+- `vendor/bin/pint --dirty --format agent` formats changed PHP files.
+- `npm run dev`, `npm run build`, `npm run watch`, and `npm run test` are the available frontend commands.
+
 ## Conventions
 
 - You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.
@@ -54,6 +62,7 @@ This project has domain-specific skills available. You MUST activate the relevan
 ## Documentation Files
 
 - You must only create documentation files if explicitly requested by the user.
+- See [CLAUDE.md](CLAUDE.md), [readme.md](readme.md), and [docker/development/README.md](docker/development/README.md) for project overview and setup details.
 
 ## Replies
 

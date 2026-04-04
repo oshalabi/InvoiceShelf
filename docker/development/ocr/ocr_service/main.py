@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.fields import default_required_fields_from_env, normalize_required_fields
+from ocr_service.logger import get_logger, is_debug_enabled, log_event
 from ocr_service.openrouter_client import OpenRouterClient
 from ocr_service.orchestrator import OcrOrchestrator, OcrProcessOptions
 from ocr_service.template_generator import (
@@ -19,6 +22,45 @@ from ocr_service.template_generator import (
 )
 
 app = FastAPI(title="InvoiceShelf OCR Sidecar")
+logger = get_logger("ocr_service.main")
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
+OPENROUTER_FALLBACK_ENV = "OCR_OPENROUTER_FALLBACK"
+AUTO_GENERATE_TEMPLATES_ENV = "OCR_AUTO_GENERATE_TEMPLATES"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+
+    if raw_value is None:
+        return default
+
+    return raw_value.strip().lower() in TRUTHY_VALUES
+
+
+def _openrouter_fallback_enabled() -> bool:
+    return _env_flag(OPENROUTER_FALLBACK_ENV)
+
+
+def _auto_generate_templates_enabled() -> bool:
+    return _env_flag(AUTO_GENERATE_TEMPLATES_ENV)
+
+
+def _runtime_ocr_options() -> tuple[bool, bool]:
+    return _openrouter_fallback_enabled(), _auto_generate_templates_enabled()
+
+
+def _runtime_configuration_notice() -> str:
+    openrouter_enabled, auto_generate_templates = _runtime_ocr_options()
+    openrouter_status = "enabled" if openrouter_enabled else "disabled"
+    auto_generate_status = "enabled" if auto_generate_templates else "disabled"
+
+    return f"""
+    <div class="notice">
+      <strong>Runtime config:</strong>
+      OpenRouter fallback is {openrouter_status} via <code>{OPENROUTER_FALLBACK_ENV}</code>.
+      Auto-generate templates is {auto_generate_status} via <code>{AUTO_GENERATE_TEMPLATES_ENV}</code>.
+    </div>
+    """
 
 
 def _parse_template_dirs() -> list[Path]:
@@ -49,6 +91,17 @@ def _build_extractor() -> OcrExtractor:
 extractor = _build_extractor()
 openrouter_client = OpenRouterClient()
 orchestrator = OcrOrchestrator(extractor, openrouter_client)
+
+log_event(
+    logger,
+    logging.INFO,
+    "service.booted",
+    debug_enabled=is_debug_enabled(),
+    openrouter_enabled=_openrouter_fallback_enabled(),
+    auto_generate_templates=_auto_generate_templates_enabled(),
+    template_dirs=extractor.template_dirs,
+    writable_template_dir=extractor.writable_template_dir,
+)
 
 
 def _page_layout(title: str, body: str) -> str:
@@ -175,10 +228,26 @@ def _validate_upload(file: UploadFile) -> tuple[str, str]:
     suffix = Path(original_name).suffix.lower()
 
     if suffix not in extractor.SUPPORTED_EXTENSIONS:
+        log_event(
+            logger,
+            logging.WARNING,
+            "upload.validation_failed",
+            file_name=original_name,
+            suffix=suffix,
+            reason="unsupported_file_type",
+        )
         raise HTTPException(
             status_code=422,
             detail="Unsupported file type. Please upload PDF, JPG, or PNG.",
         )
+
+    log_event(
+        logger,
+        logging.DEBUG,
+        "upload.validated",
+        file_name=original_name,
+        suffix=suffix,
+    )
 
     return original_name, suffix
 
@@ -188,10 +257,25 @@ async def _store_upload(file: UploadFile) -> tuple[str, bytes]:
     file_bytes = await file.read()
 
     if not file_bytes:
+        log_event(
+            logger,
+            logging.WARNING,
+            "upload.validation_failed",
+            file_name=original_name,
+            reason="empty_file",
+        )
         raise HTTPException(
             status_code=422,
             detail="Uploaded file is empty.",
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "upload.stored",
+        file_name=original_name,
+        size_bytes=len(file_bytes),
+    )
 
     return original_name, file_bytes
 
@@ -201,23 +285,61 @@ def _extract_from_bytes(
     file_bytes: bytes,
     country_code: str,
     required_fields: tuple[str, ...] | None = None,
-    openrouter_enabled: bool = False,
-    auto_generate_templates: bool = False,
+    openrouter_enabled: bool | None = None,
+    auto_generate_templates: bool | None = None,
 ) -> dict[str, object]:
     normalized_required_fields = required_fields or default_required_fields_from_env()
+    openrouter_enabled = _openrouter_fallback_enabled() if openrouter_enabled is None else openrouter_enabled
+    auto_generate_templates = (
+        _auto_generate_templates_enabled() if auto_generate_templates is None else auto_generate_templates
+    )
 
-    with TemporaryDirectory() as temporary_directory:
-        input_path = Path(temporary_directory) / file_name
-        input_path.write_bytes(file_bytes)
-        return orchestrator.extract(
-            input_path,
-            OcrProcessOptions(
-                country_code=country_code,
-                required_fields=normalized_required_fields,
-                openrouter_enabled=openrouter_enabled,
-                auto_generate_templates=auto_generate_templates,
-            ),
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "extract.run.started",
+        file_name=file_name,
+        country_code=country_code,
+        required_fields=normalized_required_fields,
+        openrouter_enabled=openrouter_enabled,
+        auto_generate_templates=auto_generate_templates,
+    )
+
+    try:
+        with TemporaryDirectory() as temporary_directory:
+            input_path = Path(temporary_directory) / file_name
+            input_path.write_bytes(file_bytes)
+            payload = orchestrator.extract(
+                input_path,
+                OcrProcessOptions(
+                    country_code=country_code,
+                    required_fields=normalized_required_fields,
+                    openrouter_enabled=openrouter_enabled,
+                    auto_generate_templates=auto_generate_templates,
+                ),
+            )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "extract.run.completed",
+            file_name=file_name,
+            status=payload.get("status"),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            field_names=sorted(payload.get("fields", {}).keys()),
         )
+        return payload
+    except Exception:
+        log_event(
+            logger,
+            logging.ERROR,
+            "extract.run.failed",
+            file_name=file_name,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        logger.exception("extract.run.failed")
+        raise
 
 
 def _render_json_result_page(title: str, payload: dict[str, object]) -> HTMLResponse:
@@ -244,7 +366,7 @@ def playground() -> HTMLResponse:
     return HTMLResponse(
         _page_layout(
             "OCR Playground",
-            """
+            f"""
             <div class="nav">
               <a href="/">OCR Playground</a>
               <a class="secondary" href="/template-generator">Template Generator</a>
@@ -252,6 +374,7 @@ def playground() -> HTMLResponse:
             <section class="card">
               <h1>OCR Playground</h1>
               <p>Upload a PDF, JPG, or PNG and open the JSON response on a separate page.</p>
+              {_runtime_configuration_notice()}
               <form action="/playground/result" method="post" enctype="multipart/form-data">
                 <label>
                   Invoice file
@@ -264,14 +387,6 @@ def playground() -> HTMLResponse:
                 <label>
                   Required fields
                   <input type="text" name="required_fields" value="invoice_number,date,amount,currency_code" />
-                </label>
-                <label>
-                  OpenRouter fallback
-                  <input type="text" name="openrouter_enabled" value="false" />
-                </label>
-                <label>
-                  Auto-generate templates
-                  <input type="text" name="auto_generate_templates" value="false" />
                 </label>
                 <button type="submit">Run OCR</button>
               </form>
@@ -345,9 +460,17 @@ def template_generator_page() -> HTMLResponse:
 
 @app.get("/health")
 def health() -> dict[str, int | str]:
+    template_count = extractor.template_count()
+    log_event(
+        logger,
+        logging.DEBUG,
+        "http.health",
+        templates=template_count,
+    )
+
     return {
         "status": "ok",
-        "templates": extractor.template_count(),
+        "templates": template_count,
     }
 
 
@@ -356,24 +479,51 @@ async def extract(
     file: UploadFile = File(...),
     country_code: str = Form("NL"),
     required_fields: str = Form("invoice_number,date,amount,currency_code"),
-    openrouter_enabled: str = Form("false"),
-    auto_generate_templates: str = Form("false"),
 ) -> dict[str, object]:
     original_name, file_bytes = await _store_upload(file)
+    openrouter_requested, auto_generate_requested = _runtime_ocr_options()
 
     try:
         normalized_required_fields = normalize_required_fields(required_fields)
     except ValueError as exception:
+        log_event(
+            logger,
+            logging.WARNING,
+            "http.extract.validation_failed",
+            file_name=original_name,
+            detail=str(exception),
+        )
         raise HTTPException(status_code=422, detail=str(exception)) from exception
 
-    return _extract_from_bytes(
+    log_event(
+        logger,
+        logging.INFO,
+        "http.extract.received",
+        file_name=original_name,
+        country_code=country_code,
+        required_fields=normalized_required_fields,
+        openrouter_enabled=openrouter_requested,
+        auto_generate_templates=auto_generate_requested,
+    )
+
+    payload = _extract_from_bytes(
         original_name,
         file_bytes,
         country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=_to_bool(openrouter_enabled),
-        auto_generate_templates=_to_bool(auto_generate_templates),
+        openrouter_enabled=openrouter_requested,
+        auto_generate_templates=auto_generate_requested,
     )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "http.extract.completed",
+        file_name=original_name,
+        status=payload.get("status"),
+    )
+
+    return payload
 
 
 @app.post("/playground/result", response_class=HTMLResponse)
@@ -381,23 +531,48 @@ async def playground_result(
     file: UploadFile = File(...),
     country_code: str = Form("NL"),
     required_fields: str = Form("invoice_number,date,amount,currency_code"),
-    openrouter_enabled: str = Form("false"),
-    auto_generate_templates: str = Form("false"),
 ) -> HTMLResponse:
     original_name, file_bytes = await _store_upload(file)
+    openrouter_requested, auto_generate_requested = _runtime_ocr_options()
 
     try:
         normalized_required_fields = normalize_required_fields(required_fields)
     except ValueError as exception:
+        log_event(
+            logger,
+            logging.WARNING,
+            "http.playground.validation_failed",
+            file_name=original_name,
+            detail=str(exception),
+        )
         raise HTTPException(status_code=422, detail=str(exception)) from exception
+
+    log_event(
+        logger,
+        logging.INFO,
+        "http.playground.received",
+        file_name=original_name,
+        country_code=country_code,
+        required_fields=normalized_required_fields,
+        openrouter_enabled=openrouter_requested,
+        auto_generate_templates=auto_generate_requested,
+    )
 
     payload = _extract_from_bytes(
         original_name,
         file_bytes,
         country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=_to_bool(openrouter_enabled),
-        auto_generate_templates=_to_bool(auto_generate_templates),
+        openrouter_enabled=openrouter_requested,
+        auto_generate_templates=auto_generate_requested,
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "http.playground.completed",
+        file_name=original_name,
+        status=payload.get("status"),
     )
 
     return _render_json_result_page("OCR JSON Result", payload)
@@ -422,6 +597,16 @@ async def template_generator_result(
         if keyword.strip()
     )
 
+    log_event(
+        logger,
+        logging.INFO,
+        "http.template_generator.received",
+        file_name=original_name,
+        issuer=issuer.strip(),
+        country_code=country_code.strip().upper() or "NL",
+        keyword_count=len(keyword_lines),
+    )
+
     with TemporaryDirectory() as temporary_directory:
         input_path = Path(temporary_directory) / original_name
         input_path.write_bytes(file_bytes)
@@ -440,6 +625,15 @@ async def template_generator_result(
                 keywords=keyword_lines,
             ),
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "http.template_generator.completed",
+        file_name=original_name,
+        output_path=result.output_path,
+        missing_labels=result.missing_labels,
+    )
 
     notices = [
         f"<div class=\"notice\"><strong>Saved:</strong> {html.escape(str(result.output_path))}</div>",
@@ -472,7 +666,3 @@ async def template_generator_result(
             """,
         )
     )
-
-
-def _to_bool(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}

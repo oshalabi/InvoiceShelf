@@ -3,8 +3,11 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    OCR_DEBUG=false \
     OCR_TEMPLATE_DIR=/app/data/templates \
-    OCR_TEMPLATE_DIRS=/app/templates-default,/app/data/templates
+    OCR_TEMPLATE_DIRS=/app/templates-default,/app/data/templates \
+    OCR_OPENROUTER_FALLBACK=false \
+    OCR_AUTO_GENERATE_TEMPLATES=false
 
 WORKDIR /app
 

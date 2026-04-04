@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.orchestrator import OcrOrchestrator, OcrProcessOptions
 from ocr_service import orchestrator as orchestrator_module
+from ocr_service import logger as logger_module
 
 
 class FakeOpenRouterClient:
@@ -238,3 +240,67 @@ def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fa
     assert response["status"] == "success"
     assert response["fields"]["invoice_number"]["value"] == "INV-42"
     assert list(tmp_path.rglob("template_ai*.yml")) == []
+
+
+def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setenv("OCR_DEBUG", "true")
+    logger_module.configure_logging(force=True)
+    capsys.readouterr()
+
+    extractor = OcrExtractor(tmp_path)
+    client = FakeOpenRouterClient(
+        extraction_response={
+            "fields": {
+                "invoice_number": "INV-42",
+                "date": "2026-04-03",
+                "amount": 123.45,
+                "currency_code": "EUR",
+            },
+            "confidence": {
+                "invoice_number": 0.91,
+                "date": 0.90,
+                "amount": 0.94,
+                "currency_code": 0.95,
+            },
+            "issuer": "Acme B.V.",
+            "model": "openrouter/model",
+        }
+    )
+    service = OcrOrchestrator(extractor, client)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "extract",
+        lambda *_args, **_kwargs: {
+            "status": "failed",
+            "message": "No matching invoice template found for this document.",
+            "fields": {},
+            "unmapped_fields": {},
+        },
+    )
+
+    response = service.extract(
+        invoice_path,
+        OcrProcessOptions(
+            openrouter_enabled=True,
+            auto_generate_templates=False,
+        ),
+    )
+
+    assert response["status"] == "success"
+
+    captured_logs = [
+        json.loads(line)
+        for line in capsys.readouterr().err.splitlines()
+        if line.strip()
+    ]
+
+    assert "orchestrator.local.completed" in {entry["action"] for entry in captured_logs}
+    assert "orchestrator.openrouter_extract.completed" in {entry["action"] for entry in captured_logs}
+    assert any(
+        entry["action"] == "orchestrator.extract.completed"
+        and entry.get("context", {}).get("final_source") == "openrouter"
+        for entry in captured_logs
+    )
