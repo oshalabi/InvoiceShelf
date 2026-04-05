@@ -457,7 +457,7 @@ def template_generator_page() -> HTMLResponse:
             </div>
             <section class="card">
               <h1>Starter Template Generator</h1>
-              <p>Upload a sample invoice and enter the label text printed on it. The sidecar will generate and save a starter <code>template.yml</code> under the writable OCR template directory.</p>
+              <p>Upload a sample invoice and enter the label text printed on it. Leave label fields blank for unlabeled receipts or invoices. The sidecar will generate and save a starter <code>template.yml</code> under the writable OCR template directory.</p>
               <form action="/template-generator/result" method="post" enctype="multipart/form-data">
                 <div class="grid">
                   <label>
@@ -480,15 +480,15 @@ def template_generator_page() -> HTMLResponse:
                 <div class="grid">
                   <label>
                     Invoice number label
-                    <input type="text" name="invoice_number_label" placeholder="Factuurnummer" required />
+                    <input type="text" name="invoice_number_label" placeholder="Factuurnummer or blank for unlabeled receipts" />
                   </label>
                   <label>
                     Date label
-                    <input type="text" name="date_label" placeholder="Factuurdatum" required />
+                    <input type="text" name="date_label" placeholder="Factuurdatum or blank for unlabeled receipts" />
                   </label>
                   <label>
                     Amount label
-                    <input type="text" name="amount_label" placeholder="Totaal incl. btw" required />
+                    <input type="text" name="amount_label" placeholder="Totaal incl. btw or blank to infer totals" />
                   </label>
                   <label>
                     Currency label
@@ -631,9 +631,9 @@ async def playground_result(
 async def template_generator_result(
     file: UploadFile = File(...),
     issuer: str = Form(...),
-    invoice_number_label: str = Form(...),
-    date_label: str = Form(...),
-    amount_label: str = Form(...),
+    invoice_number_label: str = Form(""),
+    date_label: str = Form(""),
+    amount_label: str = Form(""),
     country_code: str = Form("NL"),
     currency_code: str = Form("EUR"),
     currency_label: str = Form(""),

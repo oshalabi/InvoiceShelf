@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from ocr_service.extractor import OcrExtractor
 from ocr_service.template_generator import (
     DocumentPreviewRow,
@@ -207,7 +209,7 @@ def test_generate_starter_template_from_sample_prefers_validated_fallback_patter
     )
 
     assert "invoice_number: '(?i)(?:Factuurdatum|Invoice\\s*date)" in result.content
-    assert "amount: '(?i)(?<!\\w)Subtotaal(?!\\w)" in result.content
+    assert "amount: '(?i)(?m)^.*?(?<!\\w)Subtotaal(?!\\w)" in result.content
     assert "currency_code: '(?i)(?<!\\w)Valuta(?!\\w)" in result.content
 
 
@@ -254,6 +256,54 @@ def test_generate_starter_template_from_sample_supports_multicolumn_header_date_
     assert "date:" in result.content
     assert r"Factuurdatum(?!\w)[\s\S]{0,160}?" in result.content
     assert "21\\.03\\.2026\\s+305091007\\s+20\\.03\\.2026\\s+Online\\s+betaling" not in result.content
+
+
+def test_generate_starter_template_from_sample_supports_blank_labels_for_receipts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "receipt.jpeg"
+    sample_path.write_bytes(b"jpeg-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "ACTION\n"
+            "1348 Tilburg is\n"
+            "Wagnerplein 113\n"
+            "12-08-2024 12:34:53 ‚A 1348102-10743227\n"
+            "ARTIKELEN\n"
+            "3206092 gootsteenze € 0.99\n"
+            "TOTAAL je Se AE 2.70 3.27\n"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Action Receipt",
+            invoice_number_label="",
+            date_label="",
+            amount_label="",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    generated_definition = yaml.safe_load(result.content)
+    payload = extractor._match_template_definition(generated_definition, result.preview_text)
+
+    assert payload is not None
+
+    repaired_payload = extractor._repair_payload(payload, result.preview_text)
+
+    assert repaired_payload["invoice_number"] == "1348102-10743227"
+    assert repaired_payload["date"] == "12-08-2024"
+    assert repaired_payload["amount"] == "3.27"
 
 
 def test_validate_ai_template_definition_rejects_invoice_specific_keywords(monkeypatch, tmp_path: Path) -> None:
@@ -557,4 +607,3 @@ def test_build_document_preview_rows_reports_extracted_values_and_issues(tmp_pat
     assert "missing labels: currency_label" in rows[6].value
     assert "line item table not reconstructed" in rows[6].value
     assert rows[6].status == "warning"
-

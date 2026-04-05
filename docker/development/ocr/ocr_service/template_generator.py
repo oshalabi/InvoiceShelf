@@ -982,12 +982,25 @@ def build_invoice_number_patterns(spec: TemplateSpec) -> tuple[str, ...]:
             + INVOICE_NUMBER_VALUE_PATTERN
         )
     )
+    patterns.append(
+        case_insensitive_pattern(
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+[^\n0-9A-Z]{0,4}(?:[A-Z]\s+)?"
+            r"((?=[A-Z0-9/._-]*\d)[A-Z0-9][A-Z0-9/._]*(?:\s*-\s*[A-Z0-9][A-Z0-9/._]*)+)"
+        )
+    )
+    patterns.append(
+        case_insensitive_pattern(
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+"
+            r"([A-Z0-9][A-Z0-9/._]*(?:\s*-\s*[A-Z0-9][A-Z0-9/._]*)+)"
+        )
+    )
 
     return dedupe_patterns(patterns)
 
 
 def build_date_patterns(spec: TemplateSpec) -> tuple[str, ...]:
     return dedupe_patterns([
+        case_insensitive_pattern(r"(?m)^" + DATE_VALUE_PATTERN + r"\s+[0-9]{2}:\d{2}(?::\d{2})?\b"),
         *label_patterns(
             [
                 spec.date_label,
@@ -1021,6 +1034,7 @@ def build_amount_patterns(spec: TemplateSpec) -> tuple[str, ...]:
     ]
 
     return dedupe_patterns([
+        *line_tail_label_patterns(summary_labels, AMOUNT_VALUE_PATTERN),
         *label_patterns(summary_labels, r"(?:EUR|€)?\s*" + AMOUNT_VALUE_PATTERN),
         *spanning_label_patterns(summary_labels, r"(?:EUR|€)?\s*" + AMOUNT_VALUE_PATTERN, max_span=120),
     ])
@@ -1084,6 +1098,18 @@ def spanning_label_patterns(
             continue
 
         patterns.append(case_insensitive_pattern(spanning_label_capture_pattern(label, value_pattern, max_span)))
+
+    return tuple(patterns)
+
+
+def line_tail_label_patterns(labels: list[str | None], value_pattern: str) -> tuple[str, ...]:
+    patterns: list[str] = []
+
+    for label in labels:
+        if not label:
+            continue
+
+        patterns.append(case_insensitive_pattern(line_tail_label_capture_pattern(label, value_pattern)))
 
     return tuple(patterns)
 
@@ -1301,6 +1327,10 @@ def label_capture_pattern(label: str, value_pattern: str) -> str:
 
 def spanning_label_capture_pattern(label: str, value_pattern: str, max_span: int) -> str:
     return f"(?<!\\w){flexible_pattern(label)}(?!\\w)[\\s\\S]{{0,{max_span}}}?{value_pattern}"
+
+
+def line_tail_label_capture_pattern(label: str, value_pattern: str) -> str:
+    return f"(?m)^.*?(?<!\\w){flexible_pattern(label)}(?!\\w)[^\\n\\r]*{value_pattern}\\s*$"
 
 
 def currency_capture_pattern(currency_code: str) -> str:
