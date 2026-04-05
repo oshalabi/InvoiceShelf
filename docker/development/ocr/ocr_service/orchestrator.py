@@ -11,8 +11,8 @@ from uuid import uuid4
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.fields import public_field_name
+from ocr_service.llm_adapter import LlmAdapter
 from ocr_service.logger import get_logger, is_debug_enabled, log_event
-from ocr_service.openrouter_client import OpenRouterClient
 from ocr_service.template_generator import (
     GeneratedTemplateDefinition,
     TemplateValidationResult,
@@ -29,8 +29,19 @@ DEFAULT_TEMPLATE_HEALING_MAX_ATTEMPTS = 3
 class OcrProcessOptions:
     country_code: str = "NL"
     required_fields: tuple[str, ...] = ("invoice_number", "date", "amount", "currency_code")
-    openrouter_enabled: bool = False
+    llm_fallback_enabled: bool = False
     auto_generate_templates: bool = False
+
+    # ------------------------------------------------------------------ #
+    # Backward-compat alias: old callers that still pass openrouter_enabled
+    # as a keyword argument will hit __init__ via the field below.         #
+    # ------------------------------------------------------------------ #
+    openrouter_enabled: bool = False  # deprecated alias — maps to llm_fallback_enabled
+
+    def __post_init__(self) -> None:
+        # If the caller used the old name, promote it.
+        if self.openrouter_enabled and not self.llm_fallback_enabled:
+            object.__setattr__(self, "llm_fallback_enabled", True)
 
 
 @dataclass(frozen=True)
@@ -55,13 +66,14 @@ class TemplateStorageResult:
 
 
 class OcrOrchestrator:
-    def __init__(self, extractor: OcrExtractor, openrouter_client: OpenRouterClient) -> None:
+    def __init__(self, extractor: OcrExtractor, llm_adapter: LlmAdapter) -> None:
         self.extractor = extractor
-        self.openrouter_client = openrouter_client
+        self.llm_adapter = llm_adapter
         self.logger = get_logger("ocr_service.orchestrator")
 
     def extract(self, file_path: Path, options: OcrProcessOptions) -> dict[str, Any]:
         started_at = perf_counter()
+        llm_provider = self.llm_adapter.provider_name
         log_event(
             self.logger,
             logging.INFO,
@@ -69,10 +81,11 @@ class OcrOrchestrator:
             file_name=file_path.name,
             country_code=options.country_code,
             required_fields=options.required_fields,
-            openrouter_enabled=options.openrouter_enabled,
+            llm_fallback_enabled=options.llm_fallback_enabled,
             auto_generate_templates=options.auto_generate_templates,
+            llm_provider=llm_provider,
         )
-        openrouter_session_id = self._openrouter_session_id(file_path)
+        llm_session_id = self._llm_session_id(file_path)
 
         local_response = self.extractor.extract(
             file_path,
@@ -97,10 +110,11 @@ class OcrOrchestrator:
                 final_source="local",
                 status=local_response.get("status"),
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                llm_provider=llm_provider,
             )
             return local_response
 
-        if not options.openrouter_enabled or not self.openrouter_client.is_configured():
+        if not options.llm_fallback_enabled or not self.llm_adapter.is_configured():
             log_event(
                 self.logger,
                 logging.INFO,
@@ -108,29 +122,31 @@ class OcrOrchestrator:
                 file_name=file_path.name,
                 final_source="local",
                 status=local_response.get("status"),
-                reason="openrouter_disabled_or_unconfigured",
+                reason="llm_disabled_or_unconfigured",
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                llm_provider=llm_provider,
             )
             return local_response
 
-        openrouter_extraction = self.openrouter_client.extract_fields(
+        llm_extraction = self.llm_adapter.extract_fields(
             file_path,
             country_code=options.country_code,
             required_fields=options.required_fields,
-            session_id=openrouter_session_id,
+            session_id=llm_session_id,
         )
-        openrouter_response = self._build_openrouter_response(openrouter_extraction, options)
+        llm_response = self._build_llm_response(llm_extraction, options)
 
         log_event(
             self.logger,
             logging.INFO,
-            "orchestrator.openrouter_extract.completed",
+            "orchestrator.llm_extract.completed",
             file_name=file_path.name,
-            status=openrouter_response.get("status"),
+            status=llm_response.get("status"),
+            llm_provider=llm_provider,
         )
 
         if local_response["status"] == "partial":
-            merged_response = self._merge_missing_required_fields(local_response, openrouter_response, options)
+            merged_response = self._merge_missing_required_fields(local_response, llm_response, options)
             log_event(
                 self.logger,
                 logging.INFO,
@@ -139,6 +155,7 @@ class OcrOrchestrator:
                 final_source="merged",
                 status=merged_response.get("status"),
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                llm_provider=llm_provider,
             )
             return merged_response
 
@@ -147,9 +164,9 @@ class OcrOrchestrator:
                 file_path=file_path,
                 options=options,
                 local_response=local_response,
-                openrouter_response=openrouter_response,
-                openrouter_extraction=openrouter_extraction,
-                openrouter_session_id=openrouter_session_id,
+                llm_response=llm_response,
+                llm_extraction=llm_extraction,
+                llm_session_id=llm_session_id,
             )
 
             if healed_response is not None:
@@ -161,20 +178,22 @@ class OcrOrchestrator:
                     final_source="generated_template_retry",
                     status=healed_response.get("status"),
                     duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                    llm_provider=llm_provider,
                 )
                 return healed_response
 
-        if openrouter_response["status"] != "failed":
+        if llm_response["status"] != "failed":
             log_event(
                 self.logger,
                 logging.INFO,
                 "orchestrator.extract.completed",
                 file_name=file_path.name,
-                final_source="openrouter",
-                status=openrouter_response.get("status"),
+                final_source="llm",
+                status=llm_response.get("status"),
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
+                llm_provider=llm_provider,
             )
-            return openrouter_response
+            return llm_response
 
         log_event(
             self.logger,
@@ -184,38 +203,39 @@ class OcrOrchestrator:
             final_source="local",
             status=local_response.get("status"),
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            llm_provider=llm_provider,
         )
         return local_response
 
-    def _build_openrouter_response(
+    def _build_llm_response(
         self,
-        openrouter_extraction: dict[str, Any] | None,
+        llm_extraction: dict[str, Any] | None,
         options: OcrProcessOptions,
     ) -> dict[str, Any]:
-        if not openrouter_extraction:
+        if not llm_extraction:
             return self.extractor._failed_response(  # noqa: SLF001
                 options.country_code,
                 options.required_fields,
             )
 
-        payload = dict(openrouter_extraction.get("fields", {}))
-        issuer = openrouter_extraction.get("issuer")
+        payload = dict(llm_extraction.get("fields", {}))
+        issuer = llm_extraction.get("issuer")
 
         if issuer:
             payload["issuer"] = issuer
 
         response = self.extractor._build_response(  # noqa: SLF001
             payload=payload,
-            source_reader="openrouter",
+            source_reader=self.llm_adapter.provider_name,
             country_code=options.country_code,
             required_fields=options.required_fields,
-            field_confidences=openrouter_extraction.get("confidence", {}),
+            field_confidences=llm_extraction.get("confidence", {}),
         )
 
-        model = openrouter_extraction.get("model")
+        model = llm_extraction.get("model")
 
         if model:
-            response["unmapped_fields"]["openrouter_model"] = {
+            response["unmapped_fields"]["llm_model"] = {
                 "value": model,
                 "confidence": 1.0,
             }
@@ -225,7 +245,7 @@ class OcrOrchestrator:
     def _merge_missing_required_fields(
         self,
         local_response: dict[str, Any],
-        openrouter_response: dict[str, Any],
+        llm_response: dict[str, Any],
         options: OcrProcessOptions,
     ) -> dict[str, Any]:
         merged_fields = dict(local_response.get("fields", {}))
@@ -236,14 +256,14 @@ class OcrOrchestrator:
             if public_name in merged_fields:
                 continue
 
-            openrouter_field = openrouter_response.get("fields", {}).get(public_name)
+            llm_field = llm_response.get("fields", {}).get(public_name)
 
-            if openrouter_field:
-                merged_fields[public_name] = openrouter_field
+            if llm_field:
+                merged_fields[public_name] = llm_field
 
         merged_unmapped_fields = dict(local_response.get("unmapped_fields", {}))
 
-        for key, value in openrouter_response.get("unmapped_fields", {}).items():
+        for key, value in llm_response.get("unmapped_fields", {}).items():
             if key == "source_reader":
                 merged_unmapped_fields["fallback_source_reader"] = value
                 continue
@@ -284,9 +304,9 @@ class OcrOrchestrator:
         file_path: Path,
         options: OcrProcessOptions,
         local_response: dict[str, Any],
-        openrouter_response: dict[str, Any],
-        openrouter_extraction: dict[str, Any] | None,
-        openrouter_session_id: str,
+        llm_response: dict[str, Any],
+        llm_extraction: dict[str, Any] | None,
+        llm_session_id: str,
     ) -> dict[str, Any] | None:
         max_attempts = self._template_healing_max_attempts()
         current_output_path: Path | None = None
@@ -301,7 +321,7 @@ class OcrOrchestrator:
             file_name=file_path.name,
             max_attempts=max_attempts,
             initial_status=local_response.get("status"),
-            openrouter_session_id=openrouter_session_id,
+            llm_session_id=llm_session_id,
         )
 
         for attempt in range(1, max_attempts + 1):
@@ -317,22 +337,22 @@ class OcrOrchestrator:
                 prior_status=latest_retry_response.get("status"),
                 missing_required_fields=missing_required_fields,
                 output_path=current_output_path,
-                openrouter_session_id=openrouter_session_id,
+                llm_session_id=llm_session_id,
             )
 
-            generated_template = self.openrouter_client.generate_template_definition(
+            generated_template = self.llm_adapter.generate_template_definition(
                 file_path,
                 country_code=options.country_code,
                 required_fields=options.required_fields,
                 correction_context=self._template_generation_context(
                     attempt=attempt,
                     retry_response=latest_retry_response,
-                    openrouter_response=openrouter_response,
-                    openrouter_extraction=openrouter_extraction,
+                    llm_response=llm_response,
+                    llm_extraction=llm_extraction,
                     current_template_content=latest_template_content,
                     previous_validation_context=latest_validation_context,
                 ),
-                session_id=openrouter_session_id,
+                session_id=llm_session_id,
             )
 
             storage_result = self._store_generated_template(
@@ -341,7 +361,7 @@ class OcrOrchestrator:
                 options=options,
                 output_path=current_output_path,
                 attempt=attempt,
-                openrouter_extraction=openrouter_extraction,
+                llm_extraction=llm_extraction,
             )
 
             if storage_result.template_context:
@@ -370,7 +390,7 @@ class OcrOrchestrator:
                 output_path=current_output_path,
                 status=retry_response.get("status"),
                 missing_required_fields=retry_missing_fields,
-                openrouter_session_id=openrouter_session_id,
+                llm_session_id=llm_session_id,
             )
 
             if retry_response.get("status") == "success" and not retry_missing_fields:
@@ -382,7 +402,7 @@ class OcrOrchestrator:
                     attempt=attempt,
                     output_path=current_output_path,
                     status=retry_response.get("status"),
-                    openrouter_session_id=openrouter_session_id,
+                    llm_session_id=llm_session_id,
                 )
                 return retry_response
 
@@ -397,7 +417,7 @@ class OcrOrchestrator:
                 output_path=current_output_path,
                 status=retry_response.get("status"),
                 missing_required_fields=retry_missing_fields,
-                openrouter_session_id=openrouter_session_id,
+                llm_session_id=llm_session_id,
             )
 
         log_event(
@@ -408,7 +428,7 @@ class OcrOrchestrator:
             final_status=latest_retry_response.get("status"),
             missing_required_fields=self._missing_required_public_fields(latest_retry_response, options),
             output_path=current_output_path,
-            openrouter_session_id=openrouter_session_id,
+            llm_session_id=llm_session_id,
         )
 
         return None
@@ -420,12 +440,12 @@ class OcrOrchestrator:
         options: OcrProcessOptions,
         output_path: Path | None = None,
         attempt: int = 1,
-        openrouter_extraction: dict[str, Any] | None = None,
+        llm_extraction: dict[str, Any] | None = None,
     ) -> TemplateStorageResult:
         normalization_result = self._normalize_generated_template(
             generated_template,
             options.required_fields,
-            fallback_issuer=self._fallback_issuer(openrouter_extraction),
+            fallback_issuer=self._fallback_issuer(llm_extraction),
         )
         debug_template_payload = generated_template if is_debug_enabled() else None
 
@@ -454,7 +474,7 @@ class OcrOrchestrator:
             extractor=self.extractor,
             country_code=options.country_code,
             required_fields=options.required_fields,
-            extracted_values=openrouter_extraction.get("fields") if isinstance(openrouter_extraction, dict) else None,
+            extracted_values=llm_extraction.get("fields") if isinstance(llm_extraction, dict) else None,
         )
         normalized_validation_result = self._normalize_validation_result(validation_result)
 
@@ -529,17 +549,17 @@ class OcrOrchestrator:
         *,
         attempt: int,
         retry_response: dict[str, Any],
-        openrouter_response: dict[str, Any],
-        openrouter_extraction: dict[str, Any] | None,
+        llm_response: dict[str, Any],
+        llm_extraction: dict[str, Any] | None,
         current_template_content: str | None,
         previous_validation_context: str | None,
     ) -> str | None:
         retry_missing_fields = self._response_summary(retry_response)
-        openrouter_summary = self._response_summary(openrouter_response)
-        raw_extraction_summary = self._openrouter_extraction_summary(openrouter_extraction)
+        llm_summary = self._response_summary(llm_response)
+        raw_extraction_summary = self._llm_extraction_summary(llm_extraction)
         extracted_value_names = sorted(
             key
-            for key, value in openrouter_response.get("fields", {}).items()
+            for key, value in llm_response.get("fields", {}).items()
             if isinstance(value, dict) and value.get("value") is not None
         )
         template_section = current_template_content or "No previous template content available."
@@ -550,7 +570,7 @@ class OcrOrchestrator:
 
             return (
                 "Known extraction result from this same invoice:\n"
-                f"{raw_extraction_summary or openrouter_summary}\n"
+                f"{raw_extraction_summary or llm_summary}\n"
                 "Use these extracted values to generate a supplier-stable local template that reproduces them.\n"
                 "Do not use invoice-specific numbers, dates, or totals as keywords.\n"
                 "If you use VAT or KvK identifiers, only use supplier-stable values.\n"
@@ -567,7 +587,7 @@ class OcrOrchestrator:
         return (
             "This is a correction pass for a previously generated template.\n"
             f"Previous OCR retry result:\n{retry_missing_fields}\n"
-            f"Direct OpenRouter extraction summary:\n{raw_extraction_summary or openrouter_summary}\n"
+            f"Direct LLM extraction summary:\n{raw_extraction_summary or llm_summary}\n"
             f"{validation_section}"
             "Current generated template content:\n"
             f"{template_section}\n"
@@ -717,12 +737,12 @@ class OcrOrchestrator:
         except (TypeError, ValueError):
             return str(generated_template)
 
-    def _openrouter_extraction_summary(self, openrouter_extraction: dict[str, Any] | None) -> str | None:
-        if not isinstance(openrouter_extraction, dict):
+    def _llm_extraction_summary(self, llm_extraction: dict[str, Any] | None) -> str | None:
+        if not isinstance(llm_extraction, dict):
             return None
 
-        fields = openrouter_extraction.get("fields")
-        confidence = openrouter_extraction.get("confidence")
+        fields = llm_extraction.get("fields")
+        confidence = llm_extraction.get("confidence")
 
         if not isinstance(fields, dict) or not fields:
             return None
@@ -732,7 +752,7 @@ class OcrOrchestrator:
 
         return json.dumps(
             {
-                "issuer": openrouter_extraction.get("issuer"),
+                "issuer": llm_extraction.get("issuer"),
                 "fields": {
                     key: value
                     for key, value in fields.items()
@@ -743,16 +763,16 @@ class OcrOrchestrator:
                     for key, value in confidence.items()
                     if isinstance(value, (int, float))
                 },
-                "model": openrouter_extraction.get("model"),
+                "model": llm_extraction.get("model"),
             },
             ensure_ascii=False,
         )
 
-    def _fallback_issuer(self, openrouter_extraction: dict[str, Any] | None) -> str | None:
-        if not isinstance(openrouter_extraction, dict):
+    def _fallback_issuer(self, llm_extraction: dict[str, Any] | None) -> str | None:
+        if not isinstance(llm_extraction, dict):
             return None
 
-        issuer = openrouter_extraction.get("issuer")
+        issuer = llm_extraction.get("issuer")
 
         if not isinstance(issuer, str) or not issuer.strip():
             return None
@@ -774,5 +794,5 @@ class OcrOrchestrator:
             reason="validation_failed",
         )
 
-    def _openrouter_session_id(self, file_path: Path) -> str:
+    def _llm_session_id(self, file_path: Path) -> str:
         return f"ocr-{file_path.stem[:40]}-{uuid4().hex}"

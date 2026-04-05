@@ -7,7 +7,13 @@ from ocr_service import orchestrator as orchestrator_module
 from ocr_service import logger as logger_module
 
 
-class FakeOpenRouterClient:
+# ---------------------------------------------------------------------------
+# Fake adapter — satisfies the LlmAdapter protocol without any imports
+# ---------------------------------------------------------------------------
+
+class FakeLlmAdapter:
+    """Provider-neutral test double for LlmAdapter."""
+
     def __init__(self, extraction_response=None, template_response=None) -> None:
         self.extraction_response = extraction_response
         self.template_response = template_response
@@ -16,6 +22,10 @@ class FakeOpenRouterClient:
         self.template_contexts: list[str | None] = []
         self.extraction_kwargs: list[dict] = []
         self.template_kwargs: list[dict] = []
+
+    @property
+    def provider_name(self) -> str:
+        return "fake"
 
     def is_configured(self) -> bool:
         return True
@@ -36,10 +46,14 @@ class FakeOpenRouterClient:
         return self.template_response
 
 
-def test_orchestrator_returns_local_success_without_openrouter_fallback(monkeypatch, tmp_path: Path) -> None:
+# ---------------------------------------------------------------------------
+# Orchestrator: local success path
+# ---------------------------------------------------------------------------
+
+def test_orchestrator_returns_local_success_without_llm_fallback(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient()
-    service = OcrOrchestrator(extractor, client)
+    adapter = FakeLlmAdapter()
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -57,16 +71,47 @@ def test_orchestrator_returns_local_success_without_openrouter_fallback(monkeypa
 
     monkeypatch.setattr(extractor, "extract", lambda *_args, **_kwargs: expected_response)
 
-    response = service.extract(invoice_path, OcrProcessOptions(openrouter_enabled=True))
+    response = service.extract(invoice_path, OcrProcessOptions(llm_fallback_enabled=True))
 
     assert response == expected_response
-    assert client.extraction_calls == 0
-    assert client.template_calls == 0
+    assert adapter.extraction_calls == 0
+    assert adapter.template_calls == 0
 
 
-def test_orchestrator_merges_missing_required_fields_from_openrouter(monkeypatch, tmp_path: Path) -> None:
+# backward-compat: openrouter_enabled alias still works
+def test_orchestrator_openrouter_enabled_alias_still_accepted(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter()
+    service = OcrOrchestrator(extractor, adapter)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"%PDF-1.7")
+
+    expected_response = {
+        "status": "success",
+        "message": "Invoice fields extracted successfully.",
+        "fields": {
+            "invoice_number": {"value": "INV-42", "confidence": 0.98},
+        },
+        "unmapped_fields": {},
+    }
+
+    monkeypatch.setattr(extractor, "extract", lambda *_args, **_kwargs: expected_response)
+
+    # Pass the old name — the dataclass maps it to llm_fallback_enabled
+    options = OcrProcessOptions(openrouter_enabled=True)
+    assert options.llm_fallback_enabled is True
+
+    response = service.extract(invoice_path, options)
+    assert response == expected_response
+
+
+# ---------------------------------------------------------------------------
+# Merge partial local + LLM fields
+# ---------------------------------------------------------------------------
+
+def test_orchestrator_merges_missing_required_fields_from_llm(monkeypatch, tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path)
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "currency_code": "EUR",
@@ -75,10 +120,10 @@ def test_orchestrator_merges_missing_required_fields_from_openrouter(monkeypatch
                 "currency_code": 0.92,
             },
             "issuer": "Acme B.V.",
-            "model": "openrouter/model",
+            "model": "fake/model",
         }
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -103,19 +148,23 @@ def test_orchestrator_merges_missing_required_fields_from_openrouter(monkeypatch
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             required_fields=("invoice_number", "date", "amount", "currency_code"),
         ),
     )
 
     assert response["status"] == "success"
     assert response["fields"]["currency_code"]["value"] == "EUR"
-    assert response["unmapped_fields"]["fallback_source_reader"]["value"] == "openrouter"
+    assert response["unmapped_fields"]["fallback_source_reader"]["value"] == "fake"
 
+
+# ---------------------------------------------------------------------------
+# Template generation / healing
+# ---------------------------------------------------------------------------
 
 def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "invoice_number": "INV-42",
@@ -130,7 +179,7 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
                 "currency_code": 0.95,
             },
             "issuer": "Acme B.V.",
-            "model": "openrouter/model",
+            "model": "fake/model",
         },
         template_response={
             "issuer": "Acme B.V.",
@@ -155,7 +204,7 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
             },
         },
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -185,7 +234,7 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             auto_generate_templates=True,
         ),
     )
@@ -194,12 +243,12 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
 
     assert response["status"] == "success"
     assert created_templates
-    assert client.template_calls == 1
+    assert adapter.template_calls == 1
 
 
-def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extraction(monkeypatch, tmp_path: Path) -> None:
+def test_orchestrator_backfills_missing_template_issuer_from_llm_extraction(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "invoice_number": "202502224",
@@ -214,7 +263,7 @@ def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extracti
                 "currency_code": 0.95,
             },
             "issuer": "Ozer Logistics BV",
-            "model": "openrouter/model",
+            "model": "fake/model",
         },
         template_response={
             "keywords": ["Ozer Logistics BV", "NL822257750B01"],
@@ -230,7 +279,7 @@ def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extracti
             },
         },
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -260,7 +309,7 @@ def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extracti
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             auto_generate_templates=True,
         ),
     )
@@ -272,9 +321,9 @@ def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extracti
     assert "issuer: 'Ozer Logistics BV'" in created_templates[0].read_text(encoding="utf-8")
 
 
-def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fails(monkeypatch, tmp_path: Path) -> None:
+def test_orchestrator_returns_llm_response_when_ai_template_validation_fails(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "invoice_number": "INV-42",
@@ -289,7 +338,7 @@ def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fa
                 "currency_code": 0.95,
             },
             "issuer": "Acme B.V.",
-            "model": "openrouter/model",
+            "model": "fake/model",
         },
         template_response={
             "issuer": "Acme B.V.",
@@ -306,7 +355,7 @@ def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fa
             },
         },
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -325,7 +374,7 @@ def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fa
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             auto_generate_templates=True,
         ),
     )
@@ -339,7 +388,7 @@ def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypat
     monkeypatch.setenv("OCR_TEMPLATE_HEALING_MAX_ATTEMPTS", "3")
 
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "invoice_number": "INV-42",
@@ -354,7 +403,7 @@ def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypat
                 "currency_code": 0.95,
             },
             "issuer": "Acme B.V.",
-            "model": "openrouter/model",
+            "model": "fake/model",
         },
         template_response=[
             {
@@ -387,7 +436,7 @@ def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypat
             },
         ],
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -429,7 +478,7 @@ def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypat
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             auto_generate_templates=True,
         ),
     )
@@ -438,22 +487,26 @@ def test_orchestrator_corrects_generated_template_until_retry_succeeds(monkeypat
 
     assert response["status"] == "success"
     assert len(created_templates) == 1
-    assert client.template_calls == 2
-    assert "Known extraction result from this same invoice" in client.template_contexts[0]
-    assert '"invoice_number": "INV-42"' in client.template_contexts[0]
-    assert "Previous OCR retry result" in client.template_contexts[1]
-    assert "missing_required_fields" in client.template_contexts[1]
-    assert client.extraction_kwargs[0]["session_id"] == client.template_kwargs[0]["session_id"]
-    assert client.template_kwargs[0]["session_id"] == client.template_kwargs[1]["session_id"]
+    assert adapter.template_calls == 2
+    assert "Known extraction result from this same invoice" in adapter.template_contexts[0]
+    assert '"invoice_number": "INV-42"' in adapter.template_contexts[0]
+    assert "Previous OCR retry result" in adapter.template_contexts[1]
+    assert "missing_required_fields" in adapter.template_contexts[1]
+    assert adapter.extraction_kwargs[0]["session_id"] == adapter.template_kwargs[0]["session_id"]
+    assert adapter.template_kwargs[0]["session_id"] == adapter.template_kwargs[1]["session_id"]
 
 
-def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path, capsys) -> None:
+# ---------------------------------------------------------------------------
+# Logs include llm_provider
+# ---------------------------------------------------------------------------
+
+def test_orchestrator_logs_include_llm_provider(monkeypatch, tmp_path: Path, capsys) -> None:
     monkeypatch.setenv("OCR_DEBUG", "true")
     logger_module.configure_logging(force=True)
     capsys.readouterr()
 
     extractor = OcrExtractor(tmp_path)
-    client = FakeOpenRouterClient(
+    adapter = FakeLlmAdapter(
         extraction_response={
             "fields": {
                 "invoice_number": "INV-42",
@@ -468,10 +521,10 @@ def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path,
                 "currency_code": 0.95,
             },
             "issuer": "Acme B.V.",
-            "model": "openrouter/model",
+            "model": "fake/model",
         }
     )
-    service = OcrOrchestrator(extractor, client)
+    service = OcrOrchestrator(extractor, adapter)
     invoice_path = tmp_path / "invoice.pdf"
     invoice_path.write_bytes(b"%PDF-1.7")
 
@@ -489,7 +542,7 @@ def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path,
     response = service.extract(
         invoice_path,
         OcrProcessOptions(
-            openrouter_enabled=True,
+            llm_fallback_enabled=True,
             auto_generate_templates=False,
         ),
     )
@@ -503,9 +556,19 @@ def test_orchestrator_logs_openrouter_fallback_path(monkeypatch, tmp_path: Path,
     ]
 
     assert "orchestrator.local.completed" in {entry["action"] for entry in captured_logs}
-    assert "orchestrator.openrouter_extract.completed" in {entry["action"] for entry in captured_logs}
+    assert "orchestrator.llm_extract.completed" in {entry["action"] for entry in captured_logs}
+
+    completed_entries = [
+        entry for entry in captured_logs
+        if entry["action"] == "orchestrator.extract.completed"
+    ]
+    assert completed_entries
+    # Every completed log should carry llm_provider
+    for entry in completed_entries:
+        assert "llm_provider" in entry.get("context", {})
+
     assert any(
         entry["action"] == "orchestrator.extract.completed"
-        and entry.get("context", {}).get("final_source") == "openrouter"
+        and entry.get("context", {}).get("final_source") == "llm"
         for entry in captured_logs
     )

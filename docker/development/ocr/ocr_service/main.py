@@ -13,8 +13,13 @@ from fastapi.responses import HTMLResponse
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.fields import default_required_fields_from_env, normalize_required_fields
+from ocr_service.llm_adapter import (
+    OCR_LLM_PROVIDER_ENV,
+    OCR_OPENROUTER_FALLBACK_ENV,
+    build_llm_adapter,
+    resolve_llm_provider,
+)
 from ocr_service.logger import get_logger, is_debug_enabled, log_event
-from ocr_service.openrouter_client import OpenRouterClient
 from ocr_service.orchestrator import OcrOrchestrator, OcrProcessOptions
 from ocr_service.template_generator import (
     TemplateSpec,
@@ -24,7 +29,6 @@ from ocr_service.template_generator import (
 app = FastAPI(title="InvoiceShelf OCR Sidecar")
 logger = get_logger("ocr_service.main")
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
-OPENROUTER_FALLBACK_ENV = "OCR_OPENROUTER_FALLBACK"
 AUTO_GENERATE_TEMPLATES_ENV = "OCR_AUTO_GENERATE_TEMPLATES"
 TEMPLATE_HEALING_MAX_ATTEMPTS_ENV = "OCR_TEMPLATE_HEALING_MAX_ATTEMPTS"
 
@@ -38,8 +42,9 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw_value.strip().lower() in TRUTHY_VALUES
 
 
-def _openrouter_fallback_enabled() -> bool:
-    return _env_flag(OPENROUTER_FALLBACK_ENV)
+def _llm_fallback_enabled() -> bool:
+    """Return True when any LLM provider is resolved and enabled."""
+    return resolve_llm_provider() != "none"
 
 
 def _auto_generate_templates_enabled() -> bool:
@@ -47,19 +52,25 @@ def _auto_generate_templates_enabled() -> bool:
 
 
 def _runtime_ocr_options() -> tuple[bool, bool]:
-    return _openrouter_fallback_enabled(), _auto_generate_templates_enabled()
+    return _llm_fallback_enabled(), _auto_generate_templates_enabled()
 
 
 def _runtime_configuration_notice() -> str:
-    openrouter_enabled, auto_generate_templates = _runtime_ocr_options()
-    openrouter_status = "enabled" if openrouter_enabled else "disabled"
+    llm_fallback, auto_generate_templates = _runtime_ocr_options()
+    provider = resolve_llm_provider()
+    llm_status = f"enabled ({html.escape(provider)})" if llm_fallback else "disabled"
     auto_generate_status = "enabled" if auto_generate_templates else "disabled"
     template_healing_attempts = os.getenv(TEMPLATE_HEALING_MAX_ATTEMPTS_ENV, "3")
+
+    provider_env_note = (
+        f"<code>{OCR_LLM_PROVIDER_ENV}</code> or legacy "
+        f"<code>{OCR_OPENROUTER_FALLBACK_ENV}</code>"
+    )
 
     return f"""
     <div class="notice">
       <strong>Runtime config:</strong>
-      OpenRouter fallback is {openrouter_status} via <code>{OPENROUTER_FALLBACK_ENV}</code>.
+      LLM fallback is {llm_status} via {provider_env_note}.
       Auto-generate templates is {auto_generate_status} via <code>{AUTO_GENERATE_TEMPLATES_ENV}</code>.
       Template healing max attempts is {html.escape(template_healing_attempts)} via <code>{TEMPLATE_HEALING_MAX_ATTEMPTS_ENV}</code>.
     </div>
@@ -92,15 +103,16 @@ def _build_extractor() -> OcrExtractor:
 
 
 extractor = _build_extractor()
-openrouter_client = OpenRouterClient()
-orchestrator = OcrOrchestrator(extractor, openrouter_client)
+llm_adapter = build_llm_adapter()
+orchestrator = OcrOrchestrator(extractor, llm_adapter)
 
 log_event(
     logger,
     logging.INFO,
     "service.booted",
     debug_enabled=is_debug_enabled(),
-    openrouter_enabled=_openrouter_fallback_enabled(),
+    llm_provider=llm_adapter.provider_name,
+    llm_fallback_enabled=_llm_fallback_enabled(),
     auto_generate_templates=_auto_generate_templates_enabled(),
     template_healing_max_attempts=os.getenv(TEMPLATE_HEALING_MAX_ATTEMPTS_ENV, "3"),
     template_dirs=extractor.template_dirs,
@@ -334,12 +346,12 @@ def _extract_from_bytes(
     file_bytes: bytes,
     country_code: str,
     required_fields: tuple[str, ...] | None = None,
-    openrouter_enabled: bool | None = None,
+    llm_fallback_enabled: bool | None = None,
     auto_generate_templates: bool | None = None,
 ) -> dict[str, object]:
     normalized_required_fields = required_fields or default_required_fields_from_env()
-    openrouter_enabled = _openrouter_fallback_enabled() if openrouter_enabled is None else openrouter_enabled
-    auto_generate_templates = (
+    resolved_llm_fallback = _llm_fallback_enabled() if llm_fallback_enabled is None else llm_fallback_enabled
+    resolved_auto_generate = (
         _auto_generate_templates_enabled() if auto_generate_templates is None else auto_generate_templates
     )
 
@@ -351,8 +363,8 @@ def _extract_from_bytes(
         file_name=file_name,
         country_code=country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=openrouter_enabled,
-        auto_generate_templates=auto_generate_templates,
+        llm_fallback_enabled=resolved_llm_fallback,
+        auto_generate_templates=resolved_auto_generate,
     )
 
     try:
@@ -364,8 +376,8 @@ def _extract_from_bytes(
                 OcrProcessOptions(
                     country_code=country_code,
                     required_fields=normalized_required_fields,
-                    openrouter_enabled=openrouter_enabled,
-                    auto_generate_templates=auto_generate_templates,
+                    llm_fallback_enabled=resolved_llm_fallback,
+                    auto_generate_templates=resolved_auto_generate,
                 ),
             )
 
@@ -530,7 +542,7 @@ async def extract(
     required_fields: str = Form("invoice_number,date,amount,currency_code"),
 ) -> dict[str, object]:
     original_name, file_bytes = await _store_upload(file)
-    openrouter_requested, auto_generate_requested = _runtime_ocr_options()
+    llm_requested, auto_generate_requested = _runtime_ocr_options()
 
     try:
         normalized_required_fields = normalize_required_fields(required_fields)
@@ -551,7 +563,7 @@ async def extract(
         file_name=original_name,
         country_code=country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=openrouter_requested,
+        llm_fallback_enabled=llm_requested,
         auto_generate_templates=auto_generate_requested,
     )
 
@@ -560,7 +572,7 @@ async def extract(
         file_bytes,
         country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=openrouter_requested,
+        llm_fallback_enabled=llm_requested,
         auto_generate_templates=auto_generate_requested,
     )
 
@@ -582,7 +594,7 @@ async def playground_result(
     required_fields: str = Form("invoice_number,date,amount,currency_code"),
 ) -> HTMLResponse:
     original_name, file_bytes = await _store_upload(file)
-    openrouter_requested, auto_generate_requested = _runtime_ocr_options()
+    llm_requested, auto_generate_requested = _runtime_ocr_options()
 
     try:
         normalized_required_fields = normalize_required_fields(required_fields)
@@ -603,7 +615,7 @@ async def playground_result(
         file_name=original_name,
         country_code=country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=openrouter_requested,
+        llm_fallback_enabled=llm_requested,
         auto_generate_templates=auto_generate_requested,
     )
 
@@ -612,7 +624,7 @@ async def playground_result(
         file_bytes,
         country_code,
         required_fields=normalized_required_fields,
-        openrouter_enabled=openrouter_requested,
+        llm_fallback_enabled=llm_requested,
         auto_generate_templates=auto_generate_requested,
     )
 

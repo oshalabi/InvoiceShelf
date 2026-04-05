@@ -59,7 +59,8 @@ def test_playground_page_renders_forms(monkeypatch) -> None:
     assert "OCR Playground" in response.text
     assert "/playground/result" in response.text
     assert "/template-generator" in response.text
-    assert "OCR_OPENROUTER_FALLBACK" in response.text
+    # Notice must show provider-neutral LLM text, not hardcode "OpenRouter"
+    assert "LLM fallback" in response.text
     assert "OCR_AUTO_GENERATE_TEMPLATES" in response.text
     assert 'name="openrouter_enabled"' not in response.text
     assert 'name="auto_generate_templates"' not in response.text
@@ -115,7 +116,8 @@ def test_extract_reads_runtime_flags_from_env(monkeypatch) -> None:
 
     def fake_extract(input_path: Path, options) -> dict:
         assert input_path.suffix == ".pdf"
-        assert options.openrouter_enabled is True
+        # Legacy OCR_OPENROUTER_FALLBACK=true → llm_fallback_enabled is True
+        assert options.llm_fallback_enabled is True
         assert options.auto_generate_templates is True
         return expected_response
 

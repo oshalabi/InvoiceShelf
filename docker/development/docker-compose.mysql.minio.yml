@@ -114,8 +114,12 @@ services:
       OCR_REQUIRED_FIELDS: ${OCR_REQUIRED_FIELDS:-invoice_number,date,amount,currency_code}
       OCR_TEMPLATE_HEALING_MAX_ATTEMPTS: ${OCR_TEMPLATE_HEALING_MAX_ATTEMPTS:-3}
       OCR_DEBUG: ${OCR_DEBUG:-false}
+      # LLM provider selection (none | openrouter | ollama)
+      OCR_LLM_PROVIDER: ${OCR_LLM_PROVIDER:-none}
+      # Legacy alias — kept for backward compatibility; ignored when OCR_LLM_PROVIDER is set
       OCR_OPENROUTER_FALLBACK: ${OCR_OPENROUTER_FALLBACK:-false}
       OCR_AUTO_GENERATE_TEMPLATES: ${OCR_AUTO_GENERATE_TEMPLATES:-false}
+      # OpenRouter settings
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1/chat/completions}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
@@ -128,6 +132,14 @@ services:
       OPENROUTER_PDF_ENGINE: ${OPENROUTER_PDF_ENGINE:-native}
       OPENROUTER_RATE_LIMIT_RETRIES: ${OPENROUTER_RATE_LIMIT_RETRIES:-2}
       OPENROUTER_RATE_LIMIT_BACKOFF_MS: ${OPENROUTER_RATE_LIMIT_BACKOFF_MS:-2000}
+      # Ollama settings (host-managed Ollama; no compose service added)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1/chat/completions}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      OLLAMA_TEMPLATE_MODEL: ${OLLAMA_TEMPLATE_MODEL:-}
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-60}
+      OLLAMA_MAX_PDF_PAGES: ${OLLAMA_MAX_PDF_PAGES:-4}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "8080"
     ports:
