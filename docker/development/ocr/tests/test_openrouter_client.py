@@ -73,6 +73,7 @@ def test_openrouter_extract_fields_builds_pdf_request_with_native_file_upload(mo
 def test_openrouter_extract_fields_builds_image_request(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/model")
+    monkeypatch.setenv("OPENROUTER_DISABLE_REASONING", "true")
     client = OpenRouterClient()
     invoice_path = tmp_path / "invoice.png"
     invoice_path.write_bytes(b"\x89PNG")
@@ -116,6 +117,10 @@ def test_openrouter_extract_fields_builds_image_request(monkeypatch, tmp_path: P
     )
 
     assert captured_payload["payload"]["messages"][0]["content"][1]["type"] == "image_url"
+    assert "image or scan" in captured_payload["payload"]["messages"][0]["content"][0]["text"]
+    assert captured_payload["payload"]["reasoning"] == {
+        "effort": "medium",
+    }
     assert "plugins" not in captured_payload["payload"]
 
 

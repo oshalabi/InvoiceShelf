@@ -42,7 +42,7 @@ class TemplateSpec:
 class TemplateGenerationResult:
     output_path: Path
     content: str
-    ocr_text: str
+    preview_text: str
     keywords: tuple[str, ...]
     missing_labels: tuple[str, ...]
 
@@ -52,6 +52,28 @@ class GeneratedTemplateDefinition:
     issuer: str
     keywords: tuple[str, ...]
     fields: dict[str, str]
+
+
+@dataclass(frozen=True)
+class TemplateValidationResult:
+    is_valid: bool
+    reason: str
+    missing_required_fields: tuple[str, ...] = ()
+    matched_required_fields: tuple[str, ...] = ()
+    repaired_fields: tuple[str, ...] = ()
+    keyword_adjustments: tuple[str, ...] = ()
+    effective_keywords: tuple[str, ...] = ()
+    text_preview: str | None = None
+
+    def to_prompt_context(self) -> str:
+        return (
+            f"reason={self.reason}\n"
+            f"matched_required_fields={', '.join(self.matched_required_fields) or 'none'}\n"
+            f"missing_required_fields={', '.join(self.missing_required_fields) or 'none'}\n"
+            f"repaired_fields={', '.join(self.repaired_fields) or 'none'}\n"
+            f"keyword_adjustments={', '.join(self.keyword_adjustments) or 'none'}\n"
+            f"text_preview=\n{self.text_preview or ''}"
+        )
 
 
 def generate_starter_template_from_sample(
@@ -74,7 +96,7 @@ def generate_starter_template_from_sample(
         raise ValueError("Unsupported file type. Please upload PDF, JPG, or PNG.")
 
     text_sources = collect_text_sources(sample_path, extractor, spec.country_code)
-    ocr_text = text_sources[0] if text_sources else ""
+    preview_text = text_sources[0] if text_sources else ""
     resolved_issuer = resolve_issuer(spec.issuer, text_sources)
     missing_labels = tuple(
         label_name
@@ -110,7 +132,7 @@ def generate_starter_template_from_sample(
     return TemplateGenerationResult(
         output_path=destination,
         content=content,
-        ocr_text=ocr_text,
+        preview_text=preview_text,
         keywords=definition.keywords,
         missing_labels=missing_labels,
     )
@@ -132,16 +154,34 @@ def collect_text_sources(sample_path: Path, extractor: OcrExtractor, country_cod
         if pdf_text.strip():
             text_sources.append(pdf_text)
 
+    unique_text_sources: list[str] = []
+    seen_text_sources: set[str] = set()
+
+    for text_source in text_sources:
+        normalized_text_source = normalize_space(text_source)
+
+        if not normalized_text_source or normalized_text_source in seen_text_sources:
+            continue
+
+        seen_text_sources.add(normalized_text_source)
+        unique_text_sources.append(text_source)
+
+    ranked_text_sources = sorted(
+        unique_text_sources,
+        key=score_text_source,
+        reverse=True,
+    )
+
     log_event(
         logger,
         logging.DEBUG,
         "template_generator.text_sources.collected",
         sample_name=sample_path.name,
-        source_count=len(text_sources),
-        source_lengths=[len(text_source) for text_source in text_sources],
+        source_count=len(ranked_text_sources),
+        source_lengths=[len(text_source) for text_source in ranked_text_sources],
     )
 
-    return text_sources
+    return ranked_text_sources
 
 
 def build_validated_template_definition(
@@ -329,28 +369,33 @@ def validate_ai_template_definition(
     extractor: OcrExtractor,
     country_code: str,
     required_fields: tuple[str, ...],
-) -> bool:
+    extracted_values: dict[str, Any] | None = None,
+) -> TemplateValidationResult:
     text_sources = collect_text_sources(sample_path, extractor, country_code)
-
-    if not validate_template_definition(
-        issuer=definition.issuer,
-        keywords=definition.keywords,
-        fields=definition.fields,
+    validation_result = evaluate_ai_template_definition(
+        definition=definition,
         text_sources=text_sources,
         extractor=extractor,
         required_fields=required_fields,
-    ):
+        extracted_values=extracted_values,
+    )
+
+    if not validation_result.is_valid:
         log_event(
             logger,
             logging.WARNING,
             "template_generator.ai_validation.failed",
             sample_name=sample_path.name,
             issuer=definition.issuer,
-            reason="template_did_not_match_required_fields",
+            reason=validation_result.reason,
+            missing_required_fields=validation_result.missing_required_fields,
+            matched_required_fields=validation_result.matched_required_fields,
+            repaired_fields=validation_result.repaired_fields,
+            keyword_adjustments=validation_result.keyword_adjustments,
         )
-        return False
+        return validation_result
 
-    for keyword in definition.keywords:
+    for keyword in (validation_result.effective_keywords or definition.keywords):
         if keyword_looks_invoice_specific(keyword, text_sources):
             log_event(
                 logger,
@@ -361,7 +406,16 @@ def validate_ai_template_definition(
                 reason="invoice_specific_keyword",
                 keyword=keyword,
             )
-            return False
+            return TemplateValidationResult(
+                is_valid=False,
+                reason="invoice_specific_keyword",
+                keyword_adjustments=validation_result.keyword_adjustments,
+                repaired_fields=validation_result.repaired_fields,
+                matched_required_fields=validation_result.matched_required_fields,
+                missing_required_fields=validation_result.missing_required_fields,
+                effective_keywords=validation_result.effective_keywords,
+                text_preview=validation_result.text_preview,
+            )
 
     log_event(
         logger,
@@ -370,9 +424,273 @@ def validate_ai_template_definition(
         sample_name=sample_path.name,
         issuer=definition.issuer,
         keyword_count=len(definition.keywords),
+        repaired_fields=validation_result.repaired_fields,
+        keyword_adjustments=validation_result.keyword_adjustments,
     )
 
-    return True
+    return validation_result
+
+
+def evaluate_ai_template_definition(
+    definition: GeneratedTemplateDefinition,
+    text_sources: list[str],
+    extractor: OcrExtractor,
+    required_fields: tuple[str, ...],
+    extracted_values: dict[str, Any] | None = None,
+) -> TemplateValidationResult:
+    repaired_definition, repaired_fields, keyword_adjustments = repair_ai_template_definition(
+        definition=definition,
+        text_sources=text_sources,
+        extractor=extractor,
+        required_fields=required_fields,
+        extracted_values=extracted_values,
+    )
+    template_definition: dict[str, Any] = {
+        "issuer": repaired_definition.issuer,
+        "keywords": list(repaired_definition.keywords),
+        "fields": repaired_definition.fields,
+    }
+    best_payload: dict[str, Any] | None = None
+    best_matched_fields: tuple[str, ...] = ()
+    best_missing_fields: tuple[str, ...] = required_fields
+
+    for text in text_sources:
+        payload = extractor._match_template_definition(template_definition, text)
+
+        if not payload:
+            continue
+
+        payload = extractor._repair_payload(payload, text)
+        matched_required_fields = tuple(
+            field_name for field_name in required_fields if payload.get(field_name) not in (None, "")
+        )
+        missing_required_fields = tuple(
+            field_name for field_name in required_fields if field_name not in matched_required_fields
+        )
+
+        if (
+            best_payload is None
+            or len(matched_required_fields) > len(best_matched_fields)
+            or (
+                len(matched_required_fields) == len(best_matched_fields)
+                and len(payload) > len(best_payload)
+            )
+        ):
+            best_payload = payload
+            best_matched_fields = matched_required_fields
+            best_missing_fields = missing_required_fields
+
+    text_preview = build_text_preview(text_sources)
+
+    if best_payload is None:
+        return TemplateValidationResult(
+            is_valid=False,
+            reason="template_did_not_match_required_fields",
+            missing_required_fields=required_fields,
+            matched_required_fields=(),
+            repaired_fields=repaired_fields,
+            keyword_adjustments=keyword_adjustments,
+            effective_keywords=repaired_definition.keywords,
+            text_preview=text_preview,
+        )
+
+    if best_missing_fields:
+        return TemplateValidationResult(
+            is_valid=False,
+            reason="template_did_not_match_required_fields",
+            missing_required_fields=best_missing_fields,
+            matched_required_fields=best_matched_fields,
+            repaired_fields=repaired_fields,
+            keyword_adjustments=keyword_adjustments,
+            effective_keywords=repaired_definition.keywords,
+            text_preview=text_preview,
+        )
+
+    return TemplateValidationResult(
+        is_valid=True,
+        reason="ok",
+        missing_required_fields=(),
+        matched_required_fields=best_matched_fields,
+        repaired_fields=repaired_fields,
+        keyword_adjustments=keyword_adjustments,
+        effective_keywords=repaired_definition.keywords,
+        text_preview=text_preview,
+    )
+
+
+def repair_ai_template_definition(
+    definition: GeneratedTemplateDefinition,
+    text_sources: list[str],
+    extractor: OcrExtractor,
+    required_fields: tuple[str, ...],
+    extracted_values: dict[str, Any] | None = None,
+) -> tuple[GeneratedTemplateDefinition, tuple[str, ...], tuple[str, ...]]:
+    matched_keywords = tuple(
+        keyword
+        for keyword in definition.keywords
+        if any(re.search(keyword, text, re.MULTILINE | re.IGNORECASE) for text in text_sources)
+    )
+    keyword_adjustments: list[str] = []
+
+    if matched_keywords and matched_keywords != definition.keywords:
+        keyword_adjustments.append("pruned_non_matching_keywords")
+
+    if not matched_keywords:
+        issuer_keyword = case_insensitive_pattern(flexible_pattern(definition.issuer))
+
+        if issuer_keyword and any(re.search(issuer_keyword, text, re.MULTILINE | re.IGNORECASE) for text in text_sources):
+            matched_keywords = (issuer_keyword,)
+            keyword_adjustments.append("backfilled_issuer_keyword")
+        else:
+            matched_keywords = definition.keywords
+
+    repaired_fields: list[str] = []
+    normalized_fields: dict[str, str] = {}
+
+    for field_name in required_fields:
+        pattern = definition.fields[field_name]
+        expected_value = extracted_values.get(field_name) if isinstance(extracted_values, dict) else None
+        repaired_pattern = repair_generated_field_pattern(
+            field_name=field_name,
+            pattern=pattern,
+            text_sources=text_sources,
+            extractor=extractor,
+            expected_value=expected_value,
+        )
+        normalized_fields[field_name] = repaired_pattern
+
+        if repaired_pattern != pattern:
+            repaired_fields.append(field_name)
+
+    return (
+        GeneratedTemplateDefinition(
+            issuer=definition.issuer,
+            keywords=matched_keywords,
+            fields=normalized_fields,
+        ),
+        tuple(sorted(repaired_fields)),
+        tuple(keyword_adjustments),
+    )
+
+
+def repair_generated_field_pattern(
+    *,
+    field_name: str,
+    pattern: str,
+    text_sources: list[str],
+    extractor: OcrExtractor,
+    expected_value: Any = None,
+) -> str:
+    for candidate in generate_pattern_variants(pattern):
+        if field_pattern_matches(
+            field_name=field_name,
+            pattern=candidate,
+            text_sources=text_sources,
+            extractor=extractor,
+            expected_value=expected_value,
+        ):
+            return candidate
+
+    return pattern
+
+
+def generate_pattern_variants(pattern: str) -> tuple[str, ...]:
+    candidates = [pattern]
+
+    if " " in pattern:
+        candidates.append(pattern.replace(" ", r"\s+"))
+
+    for candidate in list(candidates):
+        for source, target in (
+            (r"\s+(", r"\s*[:#-]?\s*("),
+            (r"\s*(", r"\s*[:#-]?\s*("),
+            (r"\s+(", r"[\s\S]{0,120}?("),
+            (r"\s*[:#-]?\s*(", r"[\s\S]{0,120}?("),
+            (r"\s*(", r"[\s\S]{0,120}?("),
+        ):
+            if source in candidate:
+                candidates.append(candidate.replace(source, target, 1))
+
+    return dedupe_patterns(candidates)
+
+
+def field_pattern_matches(
+    *,
+    field_name: str,
+    pattern: str,
+    text_sources: list[str],
+    extractor: OcrExtractor,
+    expected_value: Any = None,
+) -> bool:
+    for text in text_sources:
+        match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
+
+        if match is None:
+            continue
+
+        if expected_value is None:
+            return True
+
+        matched_value = extractor._first_match_group(match)
+
+        if normalize_validation_value(field_name, matched_value, extractor) == normalize_validation_value(field_name, expected_value, extractor):
+            return True
+
+    return False
+
+
+def normalize_validation_value(field_name: str, value: Any, extractor: OcrExtractor) -> str | float | None:
+    if field_name == "invoice_number":
+        return extractor._normalize_invoice_number(value)
+
+    if field_name == "amount":
+        return extractor._normalize_amount(value)
+
+    if field_name == "currency_code":
+        return extractor._normalize_currency(value)
+
+    if value is None:
+        return None
+
+    return re.sub(r"\D+", "", str(value))
+
+
+def build_text_preview(text_sources: list[str], limit: int = 1200) -> str:
+    combined_text = "\n\n---\n\n".join(normalize_space(text_source) for text_source in text_sources if text_source.strip())
+
+    if len(combined_text) <= limit:
+        return combined_text
+
+    return f"{combined_text[:limit]}..."
+
+
+def score_text_source(text: str) -> tuple[int, int, int]:
+    lowered_text = text.lower()
+    header_markers = (
+        "factuurnummer",
+        "invoice number",
+        "factuurdatum",
+        "invoice date",
+        "factuurbedrag",
+        "invoice total",
+        "totaal netto",
+        "factuur",
+        "pagina",
+        "betaald",
+        "btw",
+    )
+    header_score = sum(1 for marker in header_markers if marker in lowered_text)
+    value_score = (
+        len(re.findall(DATE_VALUE_PATTERN, text))
+        + len(re.findall(AMOUNT_VALUE_PATTERN, text))
+        + len(re.findall(r"(?:EUR|€)", text, re.IGNORECASE))
+    )
+
+    return (
+        header_score,
+        value_score,
+        len(normalize_space(text)),
+    )
 
 
 def choose_best_pattern(patterns: tuple[str, ...], text_sources: list[str]) -> str:

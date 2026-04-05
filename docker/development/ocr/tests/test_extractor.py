@@ -291,6 +291,31 @@ def test_repair_payload_infers_invoice_date_from_multicolumn_header_row() -> Non
     assert payload["date"] == "21.03.2026"
 
 
+def test_repair_payload_infers_unlabeled_receipt_invoice_number_and_date() -> None:
+    extractor = OcrExtractor(Path(__file__).resolve().parent.parent / "templates")
+
+    payload = extractor._repair_payload(
+        {
+            "issuer": "Action",
+            "amount": "3.27",
+            "currency_code": "EUR",
+        },
+        (
+            "ACTION\n"
+            "1348 Tilburg\n"
+            "Wagnerplein 113\n"
+            "12-08-2024 12:34:53 1348102- 10743227\n"
+            "134810270186527\n"
+            "ARTIKELEN\n"
+            "TOTAAL 3.27\n"
+        ),
+    )
+
+    assert payload["invoice_number"] == "1348102-10743227"
+    assert payload["date"] == "12-08-2024"
+
+
+
 def test_regex_template_fallback_prefers_the_more_complete_payload(tmp_path: Path) -> None:
     template_dir = tmp_path / "templates"
     supplier_directory = template_dir / "nl" / "croco_shop"

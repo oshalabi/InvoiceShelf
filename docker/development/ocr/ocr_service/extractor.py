@@ -752,7 +752,7 @@ class OcrExtractor:
         if value is None:
             return None
 
-        normalized_invoice_number = str(value).strip()
+        normalized_invoice_number = re.sub(r"\s+", "", str(value).strip())
 
         if not normalized_invoice_number:
             return None
@@ -896,6 +896,9 @@ class OcrExtractor:
             r"Factuurnummer[\s\S]{0,120}?" + self.INVOICE_NUMBER_VALUE_PATTERN,
             r"Invoice\s*number[\s\S]{0,120}?" + self.INVOICE_NUMBER_VALUE_PATTERN,
             r"(?:Factuurdatum|Invoice\s*date)\s*[:#-]?\s*[0-9]{2}[./-][0-9]{2}[./-][0-9]{4}\s+" + self.INVOICE_NUMBER_VALUE_PATTERN,
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+([A-Z0-9][A-Z0-9/._]*(?:\s*-\s*[A-Z0-9][A-Z0-9/._]*)+)",
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+" + self.INVOICE_NUMBER_VALUE_PATTERN,
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?[\s\S]{0,40}?\n\s*([0-9]{10,})",
         ]
 
         for pattern in patterns:
@@ -918,6 +921,7 @@ class OcrExtractor:
             return header_row_date
 
         patterns = [
+            r"(?m)^" + self.DATE_VALUE_PATTERN + r"\s+[0-9]{2}:\d{2}(?::\d{2})?\b",
             r"Factuurdatum\s*[:#-]?\s*" + self.DATE_VALUE_PATTERN,
             r"Invoice\s*date\s*[:#-]?\s*" + self.DATE_VALUE_PATTERN,
             r"Datum\s*[:#-]?\s*" + self.DATE_VALUE_PATTERN,

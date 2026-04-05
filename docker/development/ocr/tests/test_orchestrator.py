@@ -197,6 +197,81 @@ def test_orchestrator_saves_validated_ai_template_and_retries_local_extraction(m
     assert client.template_calls == 1
 
 
+def test_orchestrator_backfills_missing_template_issuer_from_openrouter_extraction(monkeypatch, tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path)
+    client = FakeOpenRouterClient(
+        extraction_response={
+            "fields": {
+                "invoice_number": "202502224",
+                "date": "2025-03-07",
+                "amount": 3345.21,
+                "currency_code": "EUR",
+            },
+            "confidence": {
+                "invoice_number": 0.95,
+                "date": 0.95,
+                "amount": 0.95,
+                "currency_code": 0.95,
+            },
+            "issuer": "Ozer Logistics BV",
+            "model": "openrouter/model",
+        },
+        template_response={
+            "keywords": ["Ozer Logistics BV", "NL822257750B01"],
+            "fields": {
+                "invoice_number": r"INVOICE NUMBER\s*(\S+)",
+                "date": r"INVOICE DATE\s*(\d{2}-\w{3}-\d{4})",
+                "amount": r"Total\s+\w{3}\s+([\d,]+\.\d{2})",
+                "currency_code": r"Total\s+(\w{3})\s+[\d,]+\.\d{2}",
+            },
+            "options": {
+                "date_formats": ["%d-%m-%Y"],
+                "remove_whitespace": True,
+            },
+        },
+    )
+    service = OcrOrchestrator(extractor, client)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"%PDF-1.7")
+
+    responses = iter([
+        {
+            "status": "failed",
+            "message": "No matching invoice template found for this document.",
+            "fields": {},
+            "unmapped_fields": {},
+        },
+        {
+            "status": "success",
+            "message": "Invoice fields extracted successfully.",
+            "fields": {
+                "invoice_number": {"value": "202502224", "confidence": 0.98},
+                "invoice_date": {"value": "2025-03-07", "confidence": 0.98},
+                "total_amount": {"value": 3345.21, "confidence": 0.98},
+                "currency_code": {"value": "EUR", "confidence": 0.98},
+            },
+            "unmapped_fields": {},
+        },
+    ])
+
+    monkeypatch.setattr(extractor, "extract", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(orchestrator_module, "validate_ai_template_definition", lambda **_kwargs: True)
+
+    response = service.extract(
+        invoice_path,
+        OcrProcessOptions(
+            openrouter_enabled=True,
+            auto_generate_templates=True,
+        ),
+    )
+
+    created_templates = list(tmp_path.rglob("template_ai*.yml"))
+
+    assert response["status"] == "success"
+    assert created_templates
+    assert "issuer: 'Ozer Logistics BV'" in created_templates[0].read_text(encoding="utf-8")
+
+
 def test_orchestrator_returns_openrouter_response_when_ai_template_validation_fails(monkeypatch, tmp_path: Path) -> None:
     extractor = OcrExtractor(tmp_path)
     client = FakeOpenRouterClient(

@@ -4,6 +4,7 @@ from ocr_service.extractor import OcrExtractor
 from ocr_service.template_generator import (
     GeneratedTemplateDefinition,
     TemplateSpec,
+    collect_text_sources,
     default_ai_template_path,
     default_template_path,
     generate_starter_template_from_sample,
@@ -280,7 +281,7 @@ def test_validate_ai_template_definition_rejects_invoice_specific_keywords(monke
         extractor=extractor,
         country_code="NL",
         required_fields=("invoice_number", "date", "amount", "currency_code"),
-    ) is False
+    ).is_valid is False
 
 
 def test_validate_ai_template_definition_allows_supplier_vat_kvk_and_domain_keywords(
@@ -324,4 +325,125 @@ def test_validate_ai_template_definition_allows_supplier_vat_kvk_and_domain_keyw
         extractor=extractor,
         country_code="NL",
         required_fields=("invoice_number", "date", "amount", "currency_code"),
-    ) is True
+    ).is_valid is True
+
+
+def test_validate_ai_template_definition_prunes_non_matching_keywords(monkeypatch, tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.png"
+    sample_path.write_bytes(b"png-data")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "HEMA\nDatum 31-12-2024\nBon 123456\nTotaal: 12,34 EUR"
+        ),
+    )
+
+    validation_result = validate_ai_template_definition(
+        definition=GeneratedTemplateDefinition(
+            issuer="HEMA",
+            keywords=("HEMA", "hema.nl", "Dennekamp"),
+            fields={
+                "invoice_number": r"Bon\s+(\d+)",
+                "date": r"Datum\s+(\d{2}-\d{2}-\d{4})",
+                "amount": r"Totaal:\s*([\d,]+)\s+EUR",
+                "currency_code": r"Totaal:\s*[\d,]+\s+(\w+)",
+            },
+        ),
+        sample_path=sample_path,
+        extractor=extractor,
+        country_code="NL",
+        required_fields=("invoice_number", "date", "amount", "currency_code"),
+    )
+
+    assert validation_result.is_valid is True
+    assert "pruned_non_matching_keywords" in validation_result.keyword_adjustments
+
+def test_collect_text_sources_prefers_more_complete_pdf_text_over_partial_ocr(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.pdf"
+    sample_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "MERCADO\n"
+            "1 Product A € 13,49 € 13,49 9% €14,70\n"
+            "2 Product B € 5,95 € 11,90 9% €12,97"
+        ),
+    )
+    monkeypatch.setattr(
+        extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: (
+            "Factuur\n"
+            "Creta Grieks Utrecht\n"
+            "Factuurdatum\n"
+            "04/08/2024\n"
+            "Factuurnummer\n"
+            "107002\n"
+            "Factuurbedrag\n"
+            "€ 562,76"
+        ),
+    )
+
+    text_sources = collect_text_sources(sample_path, extractor, "NL")
+
+    assert text_sources[0].startswith("Factuur\nCreta Grieks Utrecht")
+
+
+def test_generate_starter_template_from_sample_uses_best_text_source_for_preview(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    sample_path = tmp_path / "invoice.pdf"
+    sample_path.write_bytes(b"%PDF-1.7")
+
+    monkeypatch.setattr(
+        extractor,
+        "_extract_ocr_text",
+        lambda *_args, **_kwargs: (
+            "MERCADO\n"
+            "1 Product A € 13,49 € 13,49 9% €14,70\n"
+            "2 Product B € 5,95 € 11,90 9% €12,97"
+        ),
+    )
+    monkeypatch.setattr(
+        extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: (
+            "Factuur\n"
+            "Creta Grieks Utrecht\n"
+            "Factuurdatum\n"
+            "04/08/2024\n"
+            "Factuurnummer\n"
+            "107002\n"
+            "Factuurbedrag\n"
+            "€ 562,76"
+        ),
+    )
+
+    result = generate_starter_template_from_sample(
+        sample_path=sample_path,
+        template_dir=tmp_path / "templates",
+        extractor=extractor,
+        spec=TemplateSpec(
+            issuer="Mercado",
+            invoice_number_label="Factuurnummer",
+            date_label="Factuurdatum",
+            amount_label="Factuurbedrag",
+            currency_code="EUR",
+            country_code="NL",
+        ),
+    )
+
+    assert "Factuurnummer" in result.preview_text
+    assert "107002" in result.preview_text
+

@@ -15,6 +15,7 @@ from ocr_service.logger import get_logger, is_debug_enabled, log_event
 from ocr_service.openrouter_client import OpenRouterClient
 from ocr_service.template_generator import (
     GeneratedTemplateDefinition,
+    TemplateValidationResult,
     default_ai_template_path,
     render_template_content,
     validate_ai_template_definition,
@@ -50,6 +51,7 @@ class TemplateStorageResult:
     stored_template: StoredGeneratedTemplate | None
     reason: str
     template_context: str | None = None
+    validation_context: str | None = None
 
 
 class OcrOrchestrator:
@@ -290,6 +292,7 @@ class OcrOrchestrator:
         current_output_path: Path | None = None
         latest_retry_response = local_response
         latest_template_content: str | None = None
+        latest_validation_context: str | None = None
 
         log_event(
             self.logger,
@@ -327,6 +330,7 @@ class OcrOrchestrator:
                     openrouter_response=openrouter_response,
                     openrouter_extraction=openrouter_extraction,
                     current_template_content=latest_template_content,
+                    previous_validation_context=latest_validation_context,
                 ),
                 session_id=openrouter_session_id,
             )
@@ -337,10 +341,14 @@ class OcrOrchestrator:
                 options=options,
                 output_path=current_output_path,
                 attempt=attempt,
+                openrouter_extraction=openrouter_extraction,
             )
 
             if storage_result.template_context:
                 latest_template_content = storage_result.template_context
+
+            if storage_result.validation_context:
+                latest_validation_context = storage_result.validation_context
 
             if storage_result.stored_template is None:
                 continue
@@ -412,8 +420,13 @@ class OcrOrchestrator:
         options: OcrProcessOptions,
         output_path: Path | None = None,
         attempt: int = 1,
+        openrouter_extraction: dict[str, Any] | None = None,
     ) -> TemplateStorageResult:
-        normalization_result = self._normalize_generated_template(generated_template, options.required_fields)
+        normalization_result = self._normalize_generated_template(
+            generated_template,
+            options.required_fields,
+            fallback_issuer=self._fallback_issuer(openrouter_extraction),
+        )
         debug_template_payload = generated_template if is_debug_enabled() else None
 
         if normalization_result.definition is None:
@@ -430,17 +443,22 @@ class OcrOrchestrator:
                 stored_template=None,
                 reason=normalization_result.reason,
                 template_context=normalization_result.debug_template_context,
+                validation_context=normalization_result.reason,
             )
 
         definition = normalization_result.definition
 
-        if not validate_ai_template_definition(
+        validation_result = validate_ai_template_definition(
             definition=definition,
             sample_path=sample_path,
             extractor=self.extractor,
             country_code=options.country_code,
             required_fields=options.required_fields,
-        ):
+            extracted_values=openrouter_extraction.get("fields") if isinstance(openrouter_extraction, dict) else None,
+        )
+        normalized_validation_result = self._normalize_validation_result(validation_result)
+
+        if not normalized_validation_result.is_valid:
             log_event(
                 self.logger,
                 logging.WARNING,
@@ -448,13 +466,18 @@ class OcrOrchestrator:
                 file_name=sample_path.name,
                 attempt=attempt,
                 issuer=definition.issuer,
-                reason="validation_failed",
+                reason=normalized_validation_result.reason,
+                missing_required_fields=normalized_validation_result.missing_required_fields,
+                matched_required_fields=normalized_validation_result.matched_required_fields,
+                repaired_fields=normalized_validation_result.repaired_fields,
+                keyword_adjustments=normalized_validation_result.keyword_adjustments,
                 generated_template=debug_template_payload,
             )
             return TemplateStorageResult(
                 stored_template=None,
-                reason="validation_failed",
+                reason=normalized_validation_result.reason,
                 template_context=render_template_content(definition),
+                validation_context=normalized_validation_result.to_prompt_context(),
             )
 
         resolved_output_path = output_path or default_ai_template_path(
@@ -482,6 +505,7 @@ class OcrOrchestrator:
             ),
             reason="saved",
             template_context=render_template_content(definition),
+            validation_context=normalized_validation_result.to_prompt_context(),
         )
 
     def _missing_required_public_fields(
@@ -508,6 +532,7 @@ class OcrOrchestrator:
         openrouter_response: dict[str, Any],
         openrouter_extraction: dict[str, Any] | None,
         current_template_content: str | None,
+        previous_validation_context: str | None,
     ) -> str | None:
         retry_missing_fields = self._response_summary(retry_response)
         openrouter_summary = self._response_summary(openrouter_response)
@@ -529,18 +554,26 @@ class OcrOrchestrator:
                 "Use these extracted values to generate a supplier-stable local template that reproduces them.\n"
                 "Do not use invoice-specific numbers, dates, or totals as keywords.\n"
                 "If you use VAT or KvK identifiers, only use supplier-stable values.\n"
-                "Prefer fewer stable keywords over brittle invoice-specific ones."
+                "Prefer fewer stable keywords over brittle invoice-specific ones.\n"
+                "For each required field, make the regex tolerant to OCR spacing, optional punctuation, and multiline label/value layouts."
             )
+
+        validation_section = (
+            f"Previous template validation feedback:\n{previous_validation_context}\n"
+            if previous_validation_context
+            else ""
+        )
 
         return (
             "This is a correction pass for a previously generated template.\n"
             f"Previous OCR retry result:\n{retry_missing_fields}\n"
             f"Direct OpenRouter extraction summary:\n{raw_extraction_summary or openrouter_summary}\n"
+            f"{validation_section}"
             "Current generated template content:\n"
             f"{template_section}\n"
             "Revise the template so the local OCR/template pipeline extracts all required fields "
             "from this same invoice. Keep the template supplier-stable and do not use invoice-specific "
-            "numbers, dates, or totals as keywords."
+            "numbers, dates, or totals as keywords. If a keyword does not appear in this invoice, remove it."
         )
 
     def _response_summary(self, response: dict[str, Any]) -> str:
@@ -592,6 +625,7 @@ class OcrOrchestrator:
         self,
         generated_template: dict[str, Any] | None,
         required_fields: tuple[str, ...],
+        fallback_issuer: str | None = None,
     ) -> TemplateNormalizationResult:
         if not isinstance(generated_template, dict):
             return TemplateNormalizationResult(
@@ -602,6 +636,9 @@ class OcrOrchestrator:
         issuer = generated_template.get("issuer")
         keywords = generated_template.get("keywords")
         fields = generated_template.get("fields")
+
+        if (not isinstance(issuer, str) or not issuer.strip()) and fallback_issuer:
+            issuer = fallback_issuer
 
         if not isinstance(issuer, str) or not issuer.strip():
             return TemplateNormalizationResult(
@@ -709,6 +746,32 @@ class OcrOrchestrator:
                 "model": openrouter_extraction.get("model"),
             },
             ensure_ascii=False,
+        )
+
+    def _fallback_issuer(self, openrouter_extraction: dict[str, Any] | None) -> str | None:
+        if not isinstance(openrouter_extraction, dict):
+            return None
+
+        issuer = openrouter_extraction.get("issuer")
+
+        if not isinstance(issuer, str) or not issuer.strip():
+            return None
+
+        return issuer.strip()
+
+    def _normalize_validation_result(self, validation_result: Any) -> TemplateValidationResult:
+        if isinstance(validation_result, TemplateValidationResult):
+            return validation_result
+
+        if validation_result is True:
+            return TemplateValidationResult(
+                is_valid=True,
+                reason="ok",
+            )
+
+        return TemplateValidationResult(
+            is_valid=False,
+            reason="validation_failed",
         )
 
     def _openrouter_session_id(self, file_path: Path) -> str:

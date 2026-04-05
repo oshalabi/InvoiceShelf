@@ -664,8 +664,8 @@ async def template_generator_result(
               {''.join(notices)}
               <h2>Generated template.yml</h2>
               <pre>{html.escape(result.content)}</pre>
-              <h2>OCR text preview</h2>
-              <pre>{html.escape(result.ocr_text or 'No OCR text was extracted from this sample.')}</pre>
+              <h2>Extracted text preview</h2>
+              <pre>{html.escape(result.preview_text or 'No text was extracted from this sample.')}</pre>
             </section>
             """,
         )

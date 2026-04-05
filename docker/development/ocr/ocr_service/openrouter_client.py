@@ -124,6 +124,7 @@ class OpenRouterClient:
                 country_code,
                 required_fields,
                 structured_output=structured_output,
+                careful_scan=self._is_image_upload(file_path),
             ),
             action="openrouter.extract",
             session_id=session_id,
@@ -256,6 +257,7 @@ class OpenRouterClient:
                 required_fields,
                 structured_output=structured_output,
                 correction_context=correction_context,
+                careful_scan=self._is_image_upload(file_path),
             ),
             action="openrouter.template_generation",
             session_id=session_id,
@@ -521,7 +523,14 @@ class OpenRouterClient:
             }
         }
 
-    def _reasoning_payload(self) -> dict[str, Any]:
+    def _reasoning_payload(self, file_path: Path) -> dict[str, Any]:
+        if self._is_image_upload(file_path):
+            return {
+                "reasoning": {
+                    "effort": "medium",
+                }
+            }
+
         if not self.disable_reasoning:
             return {}
 
@@ -594,7 +603,14 @@ class OpenRouterClient:
 
         return None
 
-    def _extraction_prompt(self, country_code: str, required_fields: tuple[str, ...], *, structured_output: bool) -> str:
+    def _extraction_prompt(
+        self,
+        country_code: str,
+        required_fields: tuple[str, ...],
+        *,
+        structured_output: bool,
+        careful_scan: bool = False,
+    ) -> str:
         prompt = (
             "Extract invoice data from this document.\n"
             f"Country code: {country_code}.\n"
@@ -608,6 +624,14 @@ class OpenRouterClient:
             f"Required fields: {', '.join(required_fields)}.\n"
             "Also include issuer when clearly visible."
         )
+
+        if careful_scan:
+            prompt = (
+                f"{prompt}\n"
+                "This input is an image or scan. Read it carefully line by line.\n"
+                "OCR may be noisy, labels and values may be split across lines, and some text may be faint or rotated.\n"
+                "Prefer careful interpretation over speed and do not guess when a field is unclear."
+            )
 
         if structured_output:
             return f"{prompt}\nReturn JSON matching the provided schema."
@@ -625,6 +649,7 @@ class OpenRouterClient:
         *,
         structured_output: bool,
         correction_context: str | None = None,
+        careful_scan: bool = False,
     ) -> str:
         prompt = (
             "Generate an invoice2data-compatible starter template definition for this invoice.\n"
@@ -644,6 +669,13 @@ class OpenRouterClient:
             "- options.remove_whitespace must be true.\n"
             f"Required fields: {', '.join(required_fields)}."
         )
+
+        if careful_scan:
+            prompt = (
+                f"{prompt}\n"
+                "This input is an image or scan. Read it carefully and assume OCR noise is possible.\n"
+                "Design regexes that tolerate multiline label/value layouts, optional punctuation, and inconsistent spacing."
+            )
 
         if correction_context:
             prompt = f"{prompt}\n\nCorrection context:\n{correction_context}"
@@ -779,7 +811,7 @@ class OpenRouterClient:
                         prompt_factory(structured_output),
                     ),
                     **self._provider_payload(),
-                    **self._reasoning_payload(),
+                    **self._reasoning_payload(file_path),
                 }
 
                 if structured_output:
@@ -1021,3 +1053,6 @@ class OpenRouterClient:
                 "remove_whitespace": True,
             },
         }
+
+    def _is_image_upload(self, file_path: Path) -> bool:
+        return file_path.suffix.lower() in {".jpg", ".jpeg", ".png"}
