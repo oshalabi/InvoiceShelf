@@ -39,10 +39,29 @@ class TemplateSpec:
 
 
 @dataclass(frozen=True)
+class LineItemPreviewRow:
+    quantity: str
+    description: str
+    unit_price: str
+    ex_vat: str
+    vat: str
+    amount: str
+
+
+@dataclass(frozen=True)
+class DocumentPreviewRow:
+    label: str
+    value: str
+    status: str
+
+
+@dataclass(frozen=True)
 class TemplateGenerationResult:
     output_path: Path
     content: str
     preview_text: str
+    document_rows: tuple[DocumentPreviewRow, ...]
+    line_item_rows: tuple[LineItemPreviewRow, ...]
     keywords: tuple[str, ...]
     missing_labels: tuple[str, ...]
 
@@ -97,6 +116,7 @@ def generate_starter_template_from_sample(
 
     text_sources = collect_text_sources(sample_path, extractor, spec.country_code)
     preview_text = text_sources[0] if text_sources else ""
+    line_item_rows = build_line_item_preview_rows(preview_text)
     resolved_issuer = resolve_issuer(spec.issuer, text_sources)
     missing_labels = tuple(
         label_name
@@ -113,6 +133,14 @@ def generate_starter_template_from_sample(
         resolved_issuer=resolved_issuer,
         text_sources=text_sources,
         extractor=extractor,
+    )
+    document_rows = build_document_preview_rows(
+        preview_text=preview_text,
+        definition=definition,
+        extractor=extractor,
+        country_code=spec.country_code,
+        missing_labels=missing_labels,
+        line_item_rows=line_item_rows,
     )
     content = render_template_content(definition)
     destination = output_path or default_template_path(template_dir, spec.country_code, resolved_issuer)
@@ -133,6 +161,8 @@ def generate_starter_template_from_sample(
         output_path=destination,
         content=content,
         preview_text=preview_text,
+        document_rows=document_rows,
+        line_item_rows=line_item_rows,
         keywords=definition.keywords,
         missing_labels=missing_labels,
     )
@@ -623,7 +653,7 @@ def field_pattern_matches(
     expected_value: Any = None,
 ) -> bool:
     for text in text_sources:
-        match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
+        match = extractor._search_field_pattern(pattern, text)
 
         if match is None:
             continue
@@ -662,6 +692,135 @@ def build_text_preview(text_sources: list[str], limit: int = 1200) -> str:
         return combined_text
 
     return f"{combined_text[:limit]}..."
+
+
+def build_document_preview_rows(
+    *,
+    preview_text: str,
+    definition: GeneratedTemplateDefinition,
+    extractor: OcrExtractor,
+    country_code: str,
+    missing_labels: tuple[str, ...],
+    line_item_rows: tuple[LineItemPreviewRow, ...],
+) -> tuple[DocumentPreviewRow, ...]:
+    payload = extractor._match_template_definition(
+        {
+            "issuer": definition.issuer,
+            "keywords": [],
+            "fields": definition.fields,
+        },
+        preview_text,
+    ) or {"issuer": definition.issuer}
+    payload = extractor._repair_payload(payload, preview_text)
+    response = extractor._build_response(
+        payload=payload,
+        source_reader="preview",
+        country_code=country_code,
+    )
+    fields = response.get("fields", {})
+    issues: list[str] = []
+    missing_required_fields = response.get("unmapped_fields", {}).get("missing_required_fields", {}).get("value", [])
+
+    if missing_labels:
+        issues.append(f"missing labels: {', '.join(missing_labels)}")
+
+    if missing_required_fields:
+        issues.append(f"missing required fields: {', '.join(missing_required_fields)}")
+
+    if not line_item_rows:
+        issues.append("line item table not reconstructed")
+
+    total_amount = fields.get("total_amount", {}).get("value")
+    total_amount_text = "-"
+
+    if isinstance(total_amount, (int, float)):
+        total_amount_text = f"{total_amount:.2f}"
+    elif total_amount not in (None, ""):
+        total_amount_text = str(total_amount)
+
+    rows = (
+        DocumentPreviewRow("Issuer", str(payload.get("issuer") or definition.issuer or "-"), "ok"),
+        DocumentPreviewRow("Invoice Number", str(fields.get("invoice_number", {}).get("value") or "-"), "ok" if fields.get("invoice_number") else "missing"),
+        DocumentPreviewRow("Invoice Date", str(fields.get("invoice_date", {}).get("value") or "-"), "ok" if fields.get("invoice_date") else "missing"),
+        DocumentPreviewRow("Total Amount", total_amount_text, "ok" if fields.get("total_amount") else "missing"),
+        DocumentPreviewRow("Currency", str(fields.get("currency_code", {}).get("value") or "-"), "ok" if fields.get("currency_code") else "missing"),
+        DocumentPreviewRow("Line Items", str(len(line_item_rows)), "ok" if line_item_rows else "warning"),
+        DocumentPreviewRow("Issues", "; ".join(issues) if issues else "None", "warning" if issues else "ok"),
+    )
+
+    return rows
+
+
+def build_line_item_preview_rows(text: str) -> tuple[LineItemPreviewRow, ...]:
+    header_match = re.search(
+        r"Aantal\s+Artikelomschrijving\s+HE-?Prijs\s+Ex\.\s*BTW\s+BTW\s+Bedrag",
+        text,
+        re.MULTILINE | re.IGNORECASE,
+    )
+
+    if header_match is None:
+        return ()
+
+    candidate_blocks: list[list[str]] = []
+
+    for raw_block in re.split(r"\n\s*\n+", text[header_match.end():]):
+        block = [normalize_space(line) for line in raw_block.splitlines() if normalize_space(line)]
+
+        if block:
+            candidate_blocks.append(block)
+
+    for start_index in range(max(0, len(candidate_blocks) - 5)):
+        columns = candidate_blocks[start_index : start_index + 6]
+
+        if len(columns) < 6:
+            continue
+
+        row_count = len(columns[0])
+
+        if row_count == 0 or any(len(column) != row_count for column in columns):
+            continue
+
+        if not looks_like_quantity_column(columns[0]):
+            continue
+
+        if not looks_like_description_column(columns[1]):
+            continue
+
+        if not all(looks_like_amount_column(column) for column in (columns[2], columns[3], columns[5])):
+            continue
+
+        if not looks_like_vat_column(columns[4]):
+            continue
+
+        return tuple(
+            LineItemPreviewRow(
+                quantity=columns[0][row_index],
+                description=columns[1][row_index],
+                unit_price=columns[2][row_index],
+                ex_vat=columns[3][row_index],
+                vat=columns[4][row_index],
+                amount=columns[5][row_index],
+            )
+            for row_index in range(row_count)
+        )
+
+    return ()
+
+
+def looks_like_quantity_column(lines: list[str]) -> bool:
+    return bool(lines) and all(re.fullmatch(r"\d+(?:[.,]\d+)?", line) for line in lines)
+
+
+def looks_like_description_column(lines: list[str]) -> bool:
+    return bool(lines) and all(not re.fullmatch(AMOUNT_VALUE_PATTERN, line) and "%" not in line for line in lines)
+
+
+def looks_like_amount_column(lines: list[str]) -> bool:
+    return bool(lines) and all("€" in line or re.search(AMOUNT_VALUE_PATTERN, line) for line in lines)
+
+
+def looks_like_vat_column(lines: list[str]) -> bool:
+    return bool(lines) and all(re.fullmatch(r"[0-9]{1,2}%", line) for line in lines)
 
 
 def score_text_source(text: str) -> tuple[int, int, int]:

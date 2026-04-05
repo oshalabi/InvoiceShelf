@@ -308,13 +308,13 @@ class OcrExtractor:
         if not text.strip():
             return None
 
-        candidate_payloads: list[dict[str, Any]] = []
+        candidate_payloads: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
         for template_path in self._iter_templates():
             payload = self._match_template(template_path, text)
 
             if payload is not None:
-                candidate_payloads.append(self._repair_payload(payload, text))
+                candidate_payloads.append((payload, self._repair_payload(payload, text)))
 
         if not candidate_payloads:
             log_event(
@@ -334,9 +334,30 @@ class OcrExtractor:
             matched_templates=len(candidate_payloads),
         )
 
-        return max(candidate_payloads, key=self._score_payload_match)
+        original_payload, repaired_payload = max(
+            candidate_payloads,
+            key=lambda candidate: self._score_payload_match(
+                candidate[1],
+                original_payload=candidate[0],
+            ),
+        )
 
-    def _score_payload_match(self, payload: dict[str, Any]) -> tuple[int, int, int, int, int]:
+        log_event(
+            self.logger,
+            logging.DEBUG,
+            "extractor.regex_fallback.selected",
+            input_name=input_path.name,
+            matched_field_count=sum(1 for key, value in original_payload.items() if key != "issuer" and value),
+            repaired_field_count=sum(1 for key, value in repaired_payload.items() if key != "issuer" and value),
+        )
+
+        return repaired_payload
+
+    def _score_payload_match(
+        self,
+        payload: dict[str, Any],
+        original_payload: dict[str, Any] | None = None,
+    ) -> tuple[int, ...]:
         mapped_priority = [
             "amount",
             "total_amount",
@@ -360,13 +381,23 @@ class OcrExtractor:
         currency_code = self._normalize_currency(
             self._first_value(payload, ["currency_code", "currency", "currency_symbol"])
         )
-
-        return (
+        base_score = (
             mapped_count,
             1 if invoice_number else 0,
             1 if normalized_amount is not None else 0,
             1 if currency_code else 0,
             len(payload),
+        )
+
+        if original_payload is None:
+            return base_score
+
+        direct_match_count = sum(1 for key in mapped_priority if original_payload.get(key))
+
+        return (
+            mapped_count,
+            direct_match_count,
+            *base_score[1:],
         )
 
     def _load_input_text(self, input_path: Path, input_reader: str) -> str:
@@ -454,7 +485,7 @@ class OcrExtractor:
             if not isinstance(field_name, str) or not isinstance(pattern, str):
                 continue
 
-            match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
+            match = self._search_field_pattern(pattern, text)
 
             if match is None:
                 continue
@@ -465,6 +496,31 @@ class OcrExtractor:
             return None
 
         return payload
+
+    def _search_field_pattern(self, pattern: str, text: str) -> re.Match[str] | None:
+        effective_pattern = (
+            self._literal_field_pattern(pattern)
+            if self._looks_like_literal_field_pattern(pattern)
+            else pattern
+        )
+
+        return re.search(effective_pattern, text, re.MULTILINE | re.IGNORECASE)
+
+    def _looks_like_literal_field_pattern(self, pattern: str) -> bool:
+        stripped_pattern = pattern.strip()
+
+        if not stripped_pattern:
+            return True
+
+        return re.search(r"[\\\[\](){}*+?|^$]", stripped_pattern) is None
+
+    def _literal_field_pattern(self, pattern: str) -> str:
+        tokens = pattern.strip().split()
+
+        if not tokens:
+            return re.escape(pattern)
+
+        return r"\s+".join(re.escape(token) for token in tokens)
 
     def _first_match_group(self, match: re.Match[str]) -> str:
         groups = [group for group in match.groups() if group]
@@ -896,6 +952,7 @@ class OcrExtractor:
             r"Factuurnummer[\s\S]{0,120}?" + self.INVOICE_NUMBER_VALUE_PATTERN,
             r"Invoice\s*number[\s\S]{0,120}?" + self.INVOICE_NUMBER_VALUE_PATTERN,
             r"(?:Factuurdatum|Invoice\s*date)\s*[:#-]?\s*[0-9]{2}[./-][0-9]{2}[./-][0-9]{4}\s+" + self.INVOICE_NUMBER_VALUE_PATTERN,
+            r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+[^\n0-9A-Z]{0,4}(?:[A-Z]\s+)?((?=[A-Z0-9/._-]*\d)[A-Z0-9][A-Z0-9/._]*(?:\s*-\s*[A-Z0-9][A-Z0-9/._]*)+)",
             r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+([A-Z0-9][A-Z0-9/._]*(?:\s*-\s*[A-Z0-9][A-Z0-9/._]*)+)",
             r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?\s+" + self.INVOICE_NUMBER_VALUE_PATTERN,
             r"(?:[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})\s+[0-9]{2}:\d{2}(?::\d{2})?[\s\S]{0,40}?\n\s*([0-9]{10,})",

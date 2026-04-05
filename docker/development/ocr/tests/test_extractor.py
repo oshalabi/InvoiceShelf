@@ -316,6 +316,132 @@ def test_repair_payload_infers_unlabeled_receipt_invoice_number_and_date() -> No
 
 
 
+def test_repair_payload_infers_receipt_invoice_number_with_ocr_noise_prefix() -> None:
+    extractor = OcrExtractor(Path(__file__).resolve().parent.parent / "templates")
+
+    payload = extractor._repair_payload(
+        {
+            "issuer": "Action",
+            "amount": "2.70",
+            "currency_code": "EUR",
+        },
+        (
+            "1348 Tilburg is\n"
+            "Wagnerplein 113\n"
+            "12-08-2024 12:34:53 ‚A 1348102-10743227\n"
+            "TOTAAL 2.70 3.27\n"
+        ),
+    )
+
+    assert payload["invoice_number"] == "1348102-10743227"
+    assert payload["date"] == "12-08-2024"
+
+
+def test_match_template_definition_treats_literal_ai_values_as_literals() -> None:
+    extractor = OcrExtractor(Path(__file__).resolve().parent.parent / "templates")
+
+    payload = extractor._match_template_definition(
+        {
+            "issuer": "ACTION",
+            "keywords": ["ACTION", "Wagnerplein", "ARTIKELEN"],
+            "fields": {
+                "invoice_number": "1348102-10743227",
+                "date": "12-08-2024",
+                "amount": "3.27",
+                "currency_code": "EUR",
+            },
+        },
+        (
+            "ACTION\n"
+            "Wagnerplein 113\n"
+            "12-08-2024 12:34:53 ‚A 1348102-10743227\n"
+            "ARTIKELEN\n"
+            "TOTAAL 2.70 3.27\n"
+            "134810270186527\n"
+        ),
+    )
+
+    assert payload == {
+        "issuer": "ACTION",
+        "invoice_number": "1348102-10743227",
+        "date": "12-08-2024",
+        "amount": "3.27",
+    }
+
+
+def test_regex_template_fallback_prefers_more_direct_template_matches_over_repaired_fields(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    supplier_directory = template_dir / "nl" / "action"
+    supplier_directory.mkdir(parents=True, exist_ok=True)
+
+    (supplier_directory / "template.yml").write_text(
+        "\n".join(
+            [
+                "issuer: 'Action'",
+                "keywords:",
+                "  - '(?i)ACTION'",
+                "  - '(?i)Wagnerplein'",
+                "fields:",
+                "  amount: '(?i)Totaal[\\s\\S]{0,40}?([0-9]+[.,][0-9]{2})'",
+                "  currency_code: '€'",
+                "options:",
+                "  remove_whitespace: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (supplier_directory / "template_ai.yml").write_text(
+        "\n".join(
+            [
+                "issuer: 'ACTION'",
+                "keywords:",
+                "  - 'ACTION'",
+                "  - 'Wagnerplein'",
+                "  - 'ARTIKELEN'",
+                "fields:",
+                "  invoice_number: '1348102-10743227'",
+                "  date: '12-08-2024'",
+                "  amount: '3.27'",
+                "  currency_code: 'EUR'",
+                "options:",
+                "  remove_whitespace: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    input_path = tmp_path / "receipt.txt"
+    input_path.write_text(
+        "\n".join(
+                [
+                    "ACTION",
+                    "Wagnerplein 113",
+                    "12-08-2024 12:34:53 ‚A 1348102-10743227",
+                    "ARTIKELEN",
+                    "3206092 gootsteenze € 0.99",
+                    "TOTAAL 2.70 3.27",
+                    "134810270186527",
+                    "",
+                ]
+        ),
+        encoding="utf-8",
+    )
+
+    extractor = OcrExtractor(template_dir)
+
+    payload = extractor._run_template_regex_fallback(input_path, input_reader="text")
+
+    assert payload == {
+        "issuer": "ACTION",
+        "invoice_number": "1348102-10743227",
+        "date": "12-08-2024",
+        "amount": "3.27",
+        "currency_code": "EUR",
+    }
+
+
 def test_regex_template_fallback_prefers_the_more_complete_payload(tmp_path: Path) -> None:
     template_dir = tmp_path / "templates"
     supplier_directory = template_dir / "nl" / "croco_shop"

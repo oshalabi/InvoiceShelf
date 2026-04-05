@@ -241,3 +241,64 @@ def test_template_generator_result_writes_template(monkeypatch, tmp_path: Path) 
     assert "Starter Template Result" in response.text
     assert created_template.exists()
     assert "Factuurnummer" in created_template.read_text(encoding="utf-8")
+
+def test_template_generator_result_renders_line_items_preview_table(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(main.extractor, "writable_template_dir", tmp_path)
+    monkeypatch.setattr(main.extractor, "_extract_ocr_text", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        main.extractor,
+        "_load_input_text",
+        lambda *_args, **_kwargs: (
+            "Factuur\n"
+            "Factuurnummer\n"
+            "107002\n"
+            "Factuurdatum\n"
+            "04/08/2024\n"
+            "Aantal\n\n"
+            "Artikelomschrijving\n\n"
+            "HE-Prijs\n\n"
+            "Ex. BTW\n\n"
+            "BTW\n\n"
+            "Bedrag\n\n"
+            "1\n"
+            "2\n\n"
+            "Product A\n"
+            "Product B\n\n"
+            "€ 10,00\n"
+            "€ 5,00\n\n"
+            "€ 10,00\n"
+            "€ 10,00\n\n"
+            "9%\n"
+            "9%\n\n"
+            "€ 10,90\n"
+            "€ 10,90\n\n"
+            "Factuurbedrag\n"
+            "€ 21,80"
+        ),
+    )
+
+    response = client.post(
+        "/template-generator/result",
+        files={
+            "file": ("invoice.pdf", b"%PDF-1.7", "application/pdf"),
+        },
+        data={
+            "issuer": "Mercado",
+            "invoice_number_label": "Factuurnummer",
+            "date_label": "Factuurdatum",
+            "amount_label": "Factuurbedrag",
+            "country_code": "NL",
+            "currency_code": "EUR",
+            "currency_label": "",
+            "keywords": "",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Document Preview" in response.text
+    assert "Invoice Number" in response.text
+    assert "107002" in response.text
+    assert "Line Items Preview" in response.text
+    assert "Product A" in response.text
+    assert "Artikelomschrijving" in response.text
+

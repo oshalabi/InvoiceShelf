@@ -2,8 +2,11 @@ from pathlib import Path
 
 from ocr_service.extractor import OcrExtractor
 from ocr_service.template_generator import (
+    DocumentPreviewRow,
     GeneratedTemplateDefinition,
     TemplateSpec,
+    build_document_preview_rows,
+    build_line_item_preview_rows,
     collect_text_sources,
     default_ai_template_path,
     default_template_path,
@@ -388,6 +391,24 @@ def test_collect_text_sources_prefers_more_complete_pdf_text_over_partial_ocr(
             "04/08/2024\n"
             "Factuurnummer\n"
             "107002\n"
+            "Aantal\n\n"
+            "Artikelomschrijving\n\n"
+            "HE-Prijs\n\n"
+            "Ex. BTW\n\n"
+            "BTW\n\n"
+            "Bedrag\n\n"
+            "1\n"
+            "2\n\n"
+            "Product A\n"
+            "Product B\n\n"
+            "€ 10,00\n"
+            "€ 5,00\n\n"
+            "€ 10,00\n"
+            "€ 10,00\n\n"
+            "9%\n"
+            "9%\n\n"
+            "€ 10,90\n"
+            "€ 10,90\n\n"
             "Factuurbedrag\n"
             "€ 562,76"
         ),
@@ -425,6 +446,24 @@ def test_generate_starter_template_from_sample_uses_best_text_source_for_preview
             "04/08/2024\n"
             "Factuurnummer\n"
             "107002\n"
+            "Aantal\n\n"
+            "Artikelomschrijving\n\n"
+            "HE-Prijs\n\n"
+            "Ex. BTW\n\n"
+            "BTW\n\n"
+            "Bedrag\n\n"
+            "1\n"
+            "2\n\n"
+            "Product A\n"
+            "Product B\n\n"
+            "€ 10,00\n"
+            "€ 5,00\n\n"
+            "€ 10,00\n"
+            "€ 10,00\n\n"
+            "9%\n"
+            "9%\n\n"
+            "€ 10,90\n"
+            "€ 10,90\n\n"
             "Factuurbedrag\n"
             "€ 562,76"
         ),
@@ -446,4 +485,76 @@ def test_generate_starter_template_from_sample_uses_best_text_source_for_preview
 
     assert "Factuurnummer" in result.preview_text
     assert "107002" in result.preview_text
+    assert result.document_rows[1] == DocumentPreviewRow("Invoice Number", "107002", "ok")
+    assert result.document_rows[2] == DocumentPreviewRow("Invoice Date", "04/08/2024", "ok")
+    assert len(result.line_item_rows) == 2
+    assert result.line_item_rows[0].description == "Product A"
+
+def test_build_line_item_preview_rows_parses_columnar_pdf_text() -> None:
+    rows = build_line_item_preview_rows(
+        "Factuur\n"
+        "Aantal\n\n"
+        "Artikelomschrijving\n\n"
+        "HE-Prijs\n\n"
+        "Ex. BTW\n\n"
+        "BTW\n\n"
+        "Bedrag\n\n"
+        "1\n"
+        "2\n\n"
+        "Product A\n"
+        "Product B\n\n"
+        "€ 10,00\n"
+        "€ 5,00\n\n"
+        "€ 10,00\n"
+        "€ 10,00\n\n"
+        "9%\n"
+        "9%\n\n"
+        "€ 10,90\n"
+        "€ 10,90\n\n"
+        "Betaald PIN"
+    )
+
+    assert len(rows) == 2
+    assert rows[0].description == "Product A"
+    assert rows[1].quantity == "2"
+    assert rows[1].amount == "€ 10,90"
+
+def test_build_document_preview_rows_reports_extracted_values_and_issues(tmp_path: Path) -> None:
+    extractor = OcrExtractor(tmp_path / "templates")
+    definition = GeneratedTemplateDefinition(
+        issuer="Mercado",
+        keywords=(),
+        fields={
+            "invoice_number": r"(?i)Factuurnummer\s*([A-Z0-9-]+)",
+            "date": r"(?i)Factuurdatum\s*([0-9]{2}/[0-9]{2}/[0-9]{4})",
+            "amount": r"(?i)Factuurbedrag\s*(?:EUR|€)?\s*([0-9.,]+)",
+            "currency_code": r"(?i)((?:EUR|€))",
+        },
+    )
+
+    rows = build_document_preview_rows(
+        preview_text=(
+            "Factuur\n"
+            "Factuurnummer 107002\n"
+            "Factuurdatum 04/08/2024\n"
+            "Factuurbedrag € 562,76\n"
+            "Aantal Artikelomschrijving HE-Prijs Ex. BTW BTW Bedrag"
+        ),
+        definition=definition,
+        extractor=extractor,
+        country_code="NL",
+        missing_labels=("currency_label",),
+        line_item_rows=(),
+    )
+
+    assert rows[0] == DocumentPreviewRow("Issuer", "Mercado", "ok")
+    assert rows[1] == DocumentPreviewRow("Invoice Number", "107002", "ok")
+    assert rows[2] == DocumentPreviewRow("Invoice Date", "04/08/2024", "ok")
+    assert rows[3] == DocumentPreviewRow("Total Amount", "562.76", "ok")
+    assert rows[4] == DocumentPreviewRow("Currency", "EUR", "ok")
+    assert rows[5] == DocumentPreviewRow("Line Items", "0", "warning")
+    assert rows[6].label == "Issues"
+    assert "missing labels: currency_label" in rows[6].value
+    assert "line item table not reconstructed" in rows[6].value
+    assert rows[6].status == "warning"
 

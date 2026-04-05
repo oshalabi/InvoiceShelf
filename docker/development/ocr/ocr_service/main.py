@@ -219,6 +219,51 @@ def _page_layout(title: str, body: str) -> str:
         border-radius: 12px;
         background: var(--accent-soft);
       }}
+      .table-wrap {{
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: white;
+      }}
+      table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }}
+      th, td {{
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }}
+      th {{
+        background: #f8f1e4;
+        white-space: nowrap;
+      }}
+      tr:last-child td {{
+        border-bottom: 0;
+      }}
+      .status-chip {{
+        display: inline-block;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }}
+      .status-ok {{
+        background: #dff3e4;
+        color: #1f6f43;
+      }}
+      .status-warning {{
+        background: #fff1cc;
+        color: #8a6116;
+      }}
+      .status-missing {{
+        background: #f9d8d6;
+        color: #9f2f2f;
+      }}
     </style>
   </head>
   <body>
@@ -650,6 +695,57 @@ async def template_generator_result(
             + "</div>"
         )
 
+    document_preview = ""
+    document_row_markup = "".join(
+        f"<tr><td>{html.escape(row.label)}</td><td>{html.escape(row.value)}</td>"
+        f"<td><span class=\"status-chip status-{html.escape(row.status)}\">"
+        f"{html.escape(row.status)}</span></td></tr>"
+        for row in result.document_rows
+    )
+
+    if document_row_markup:
+        document_preview = f"""
+              <h2>Document Preview</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Value</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>{document_row_markup}</tbody>
+                </table>
+              </div>
+        """
+
+    line_items_preview = ""
+
+    if result.line_item_rows:
+        row_markup = "".join(
+            f"<tr><td>{html.escape(row.quantity)}</td><td>{html.escape(row.description)}</td><td>{html.escape(row.unit_price)}</td><td>{html.escape(row.ex_vat)}</td><td>{html.escape(row.vat)}</td><td>{html.escape(row.amount)}</td></tr>"
+            for row in result.line_item_rows
+        )
+        line_items_preview = f"""
+              <h2>Line Items Preview</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Aantal</th>
+                      <th>Artikelomschrijving</th>
+                      <th>HE-Prijs</th>
+                      <th>Ex. BTW</th>
+                      <th>BTW</th>
+                      <th>Bedrag</th>
+                    </tr>
+                  </thead>
+                  <tbody>{row_markup}</tbody>
+                </table>
+              </div>
+        """
+
     return HTMLResponse(
         _page_layout(
             "Starter Template Result",
@@ -664,6 +760,8 @@ async def template_generator_result(
               {''.join(notices)}
               <h2>Generated template.yml</h2>
               <pre>{html.escape(result.content)}</pre>
+              {document_preview}
+              {line_items_preview}
               <h2>Extracted text preview</h2>
               <pre>{html.escape(result.preview_text or 'No text was extracted from this sample.')}</pre>
             </section>
