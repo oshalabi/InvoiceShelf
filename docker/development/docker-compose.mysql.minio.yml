@@ -102,9 +102,7 @@ services:
 
   ocr:
     container_name: invoiceshelf-dev-ocr
-    build:
-      context: ./ocr
-      dockerfile: Dockerfile
+    image: ghcr.io/oshalabi/ocr-app:latest
     environment:
       OCR_TEMPLATE_DIR: /app/templates
       OCR_TEMPLATE_DIRS: /app/templates
