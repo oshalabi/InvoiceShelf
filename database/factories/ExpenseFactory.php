@@ -2,11 +2,11 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\Customer;
-use App\Models\Expense;
-use App\Models\ExpenseCategory;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Contacts\Models\Customer;
+use App\Domains\Money\Models\Currency;
+use App\Domains\Purchases\Models\Expense;
+use App\Domains\Purchases\Models\ExpenseCategory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ExpenseFactory extends Factory

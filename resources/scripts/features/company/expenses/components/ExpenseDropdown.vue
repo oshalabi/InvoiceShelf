@@ -1,0 +1,93 @@
+<template>
+  <BaseDropdown :label="row.expense_number ? $t('general.actions_for', { name: String(row.expense_number) }) : ''">
+    <template #activator>
+      <span class="inline-flex items-center justify-center rounded-lg w-9 h-9 text-muted hover:bg-hover-strong hover:text-heading">
+        <BaseIcon name="EllipsisHorizontalIcon" class="w-5 h-5" />
+      </span>
+    </template>
+
+    <!-- Edit Expense -->
+    <BaseDropdownItem v-if="canEdit" :to="`/admin/expenses/${row.id}/edit`">
+      <BaseIcon
+        name="PencilIcon"
+        class="w-5 h-5 me-3 text-subtle group-hover:text-muted"
+      />
+      {{ $t('general.edit') }}
+    </BaseDropdownItem>
+
+    <!-- Delete Expense -->
+    <BaseDropdownItem v-if="canDelete" @click="removeExpense">
+      <BaseIcon
+        name="TrashIcon"
+        class="w-5 h-5 me-3 text-subtle group-hover:text-muted"
+      />
+      {{ $t('general.delete') }}
+    </BaseDropdownItem>
+    <!-- Module actions; see registerEntityAction('expense', 'list', ...) -->
+    <ExtensionSlot
+      v-if="table"
+      name="entity"
+      entity="expense"
+      area="actions:list"
+      :context="extensionContext"
+    />
+  </BaseDropdown>
+</template>
+
+<script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { useExpenseStore } from '../store'
+import { useDialogStore } from '../../../../stores/dialog.store'
+import type { Expense } from '../../../../types/domain/expense'
+import ExtensionSlot from '@/scripts/extensions/ExtensionSlot.vue'
+import { entityContext } from '@/scripts/extensions/records'
+
+interface TableRef {
+  refresh: () => void
+}
+
+interface Props {
+  row: Expense
+  table?: TableRef | null
+  loadData?: (() => void) | null
+  canEdit?: boolean
+  canDelete?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  table: null,
+  loadData: null,
+  canEdit: false,
+  canDelete: false,
+})
+
+const extensionContext = entityContext('expense', 'list', () => props.row, () => {
+  props.table?.refresh()
+  props.loadData?.()
+})
+
+const expenseStore = useExpenseStore()
+const dialogStore = useDialogStore()
+const { t } = useI18n()
+
+function removeExpense(): void {
+  dialogStore
+    .openDialog({
+      title: t('general.are_you_sure'),
+      message: t('expenses.confirm_delete'),
+      yesLabel: t('general.ok'),
+      noLabel: t('general.cancel'),
+      variant: 'danger',
+      hideNoButton: false,
+      size: 'lg',
+    })
+    .then(async (res: boolean) => {
+      if (res) {
+        const response = await expenseStore.deleteExpense({ ids: [props.row.id] })
+        if (response) {
+          props.loadData?.()
+        }
+      }
+    })
+}
+</script>

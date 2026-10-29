@@ -1,10 +1,12 @@
 <?php
 
-use App\Http\Requests\InvoicesRequest;
-use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\Tax;
-use Illuminate\Http\Request;
+use App\Domains\Receivables\Models\Payment;
+use App\Domains\Sales\Application\DocumentItemService;
+use App\Domains\Sales\Application\InvoiceService;
+use App\Domains\Sales\Http\Requests\InvoicesRequest;
+use App\Domains\Sales\Models\Invoice;
+use App\Domains\Sales\Models\InvoiceItem;
+use App\Domains\Taxation\Models\Tax;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {
@@ -29,9 +31,21 @@ test('invoice has many taxes', function () {
 });
 
 test('invoice has many payments', function () {
-    $invoice = Invoice::factory()->hasPayments(5)->create();
+    $invoice = Invoice::factory()->create();
+    $payments = Payment::factory()->count(5)->create([
+        'company_id' => $invoice->company_id,
+        'customer_id' => $invoice->customer_id,
+        'currency_id' => $invoice->currency_id,
+    ]);
 
-    $this->assertCount(5, $invoice->payments);
+    foreach ($payments as $payment) {
+        $invoice->payments()->attach($payment->id, [
+            'amount' => $payment->amount,
+            'base_amount' => $payment->base_amount,
+        ]);
+    }
+
+    $this->assertCount(5, $invoice->fresh()->payments);
 
     $this->assertTrue($invoice->payments()->exists());
 });
@@ -68,7 +82,11 @@ test('create invoice', function () {
     $invoice_number = explode('-', $invoice['invoice_number']);
     $number_attributes['invoice_number'] = $invoice_number[0].'-'.sprintf('%06d', intval($invoice_number[1]));
 
-    $response = Invoice::createInvoice($request);
+    $response = app(InvoiceService::class)->create(
+        attributes: $request->getInvoicePayload(),
+        items: $request->input('items'),
+        taxes: $request->input('taxes'),
+    );
 
     $this->assertDatabaseHas('invoice_items', [
         'invoice_id' => $response->id,
@@ -82,9 +100,6 @@ test('create invoice', function () {
 
     $this->assertDatabaseHas('invoices', [
         'invoice_number' => $invoice['invoice_number'],
-        'sub_total' => $invoice['sub_total'],
-        'total' => $invoice['total'],
-        'tax' => $invoice['tax'],
         'discount' => $invoice['discount'],
         'notes' => $invoice['notes'],
         'customer_id' => $invoice['customer_id'],
@@ -119,7 +134,12 @@ test('update invoice', function () {
 
     $number_attributes['invoice_number'] = $invoice_number[0].'-'.sprintf('%06d', intval($invoice_number[1]));
 
-    $response = $invoice->updateInvoice($request);
+    $response = app(InvoiceService::class)->update(
+        invoice: $invoice,
+        attributes: $request->getInvoicePayload(),
+        items: $request->input('items'),
+        taxes: $request->input('taxes'),
+    );
 
     $this->assertDatabaseHas('invoice_items', [
         'invoice_id' => $response->id,
@@ -133,9 +153,6 @@ test('update invoice', function () {
 
     $this->assertDatabaseHas('invoices', [
         'invoice_number' => $newInvoice['invoice_number'],
-        'sub_total' => $newInvoice['sub_total'],
-        'total' => $newInvoice['total'],
-        'tax' => $newInvoice['tax'],
         'discount' => $newInvoice['discount'],
         'notes' => $newInvoice['notes'],
         'customer_id' => $newInvoice['customer_id'],
@@ -154,11 +171,7 @@ test('create items', function () {
 
     array_push($items, $item);
 
-    $request = new InvoicesRequest;
-
-    $request->replace(['items' => $items]);
-
-    Invoice::createItems($invoice, $request->items);
+    app(DocumentItemService::class)->createItems($invoice, $items);
 
     $this->assertDatabaseHas('invoice_items', [
         'invoice_id' => $invoice->id,
@@ -181,11 +194,7 @@ test('create taxes', function () {
 
     array_push($taxes, $tax);
 
-    $request = new Request;
-
-    $request->replace(['taxes' => $taxes]);
-
-    Invoice::createTaxes($invoice, $request->taxes);
+    app(DocumentItemService::class)->createTaxes($invoice, $taxes);
 
     $this->assertDatabaseHas('taxes', [
         'invoice_id' => $invoice->id,

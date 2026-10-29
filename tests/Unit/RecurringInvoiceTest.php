@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\RecurringInvoice;
+use App\Domains\Sales\Models\RecurringInvoice;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

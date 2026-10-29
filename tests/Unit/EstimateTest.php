@@ -1,10 +1,11 @@
 <?php
 
-use App\Http\Requests\EstimatesRequest;
-use App\Models\Estimate;
-use App\Models\EstimateItem;
-use App\Models\Tax;
-use Illuminate\Http\Request;
+use App\Domains\Sales\Application\DocumentItemService;
+use App\Domains\Sales\Application\EstimateService;
+use App\Domains\Sales\Http\Requests\EstimatesRequest;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\EstimateItem;
+use App\Domains\Taxation\Models\Tax;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {
@@ -51,7 +52,11 @@ test('create estimate', function () {
 
     $request->replace($estimate);
 
-    $response = Estimate::createEstimate($request);
+    $response = app(EstimateService::class)->create(
+        attributes: $request->getEstimatePayload(),
+        items: $request->input('items'),
+        taxes: $request->input('taxes'),
+    );
 
     $this->assertDatabaseHas('estimate_items', [
         'estimate_id' => $response->id,
@@ -66,12 +71,9 @@ test('create estimate', function () {
         'estimate_number' => $estimate['estimate_number'],
         'customer_id' => $estimate['customer_id'],
         'template_name' => $estimate['template_name'],
-        'sub_total' => $estimate['sub_total'],
-        'total' => $estimate['total'],
         'discount' => $estimate['discount'],
         'discount_type' => $estimate['discount_type'],
         'discount_val' => $estimate['discount_val'],
-        'tax' => $estimate['tax'],
         'notes' => $estimate['notes'],
     ]);
 });
@@ -99,7 +101,12 @@ test('update estimate', function () {
 
     $number_attributes['estimate_number'] = $estimate_number[0].'-'.sprintf('%06d', intval($estimate_number[1]));
 
-    $estimate->updateEstimate($request);
+    app(EstimateService::class)->update(
+        estimate: $estimate,
+        attributes: $request->getEstimatePayload(),
+        items: $request->input('items'),
+        taxes: $request->input('taxes'),
+    );
 
     $this->assertDatabaseHas('estimate_items', [
         'estimate_id' => $estimate->id,
@@ -114,12 +121,9 @@ test('update estimate', function () {
         'estimate_number' => $newEstimate['estimate_number'],
         'customer_id' => $newEstimate['customer_id'],
         'template_name' => $newEstimate['template_name'],
-        'sub_total' => $newEstimate['sub_total'],
-        'total' => $newEstimate['total'],
         'discount' => $newEstimate['discount'],
         'discount_type' => $newEstimate['discount_type'],
         'discount_val' => $newEstimate['discount_val'],
-        'tax' => $newEstimate['tax'],
         'notes' => $newEstimate['notes'],
     ]);
 });
@@ -135,11 +139,7 @@ test('create items', function () {
 
     array_push($items, $item);
 
-    $request = new Request;
-
-    $request->replace(['items' => $items]);
-
-    Estimate::createItems($estimate, $request, $estimate->exchange_rate);
+    app(DocumentItemService::class)->createItems($estimate, $items);
 
     $this->assertDatabaseHas('estimate_items', [
         'estimate_id' => $estimate->id,
@@ -168,11 +168,7 @@ test('create taxes', function () {
     array_push($taxes, $tax1);
     array_push($taxes, $tax2);
 
-    $request = new Request;
-
-    $request->replace(['taxes' => $taxes]);
-
-    Estimate::createTaxes($estimate, $request, $estimate->exchange_rate);
+    app(DocumentItemService::class)->createTaxes($estimate, $taxes);
 
     $this->assertCount(2, $estimate->taxes);
 

@@ -2,157 +2,173 @@
 
 namespace App\Providers;
 
-use App\Bouncer\Scopes\DefaultScope;
-use App\Policies\CompanyPolicy;
-use App\Policies\CustomerPolicy;
-use App\Policies\DashboardPolicy;
-use App\Policies\EstimatePolicy;
-use App\Policies\ExpensePolicy;
-use App\Policies\InvoicePolicy;
-use App\Policies\ItemPolicy;
-use App\Policies\ModulesPolicy;
-use App\Policies\NotePolicy;
-use App\Policies\OwnerPolicy;
-use App\Policies\PaymentPolicy;
-use App\Policies\RecurringInvoicePolicy;
-use App\Policies\ReportPolicy;
-use App\Policies\RolePolicy;
-use App\Policies\SettingsPolicy;
-use App\Policies\UserPolicy;
-use App\Space\InstallUtils;
-use Gate;
+use App\Platform\Operations\Demo\DemoMode;
+use App\Platform\Operations\Installation\Application\InstallationState;
+use App\Platform\Persistence\ModelIdentityMap;
+use App\Support\Bouncer\BouncerDefaultScope;
+use App\Support\Urls\CustomerUrl;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Silber\Bouncer\Database\Models as BouncerModels;
-use Silber\Bouncer\Database\Role;
-use View;
 
 class AppServiceProvider extends ServiceProvider
 {
     /**
-     * The path to your application's "home" route.
+     * Where a signed-in staff user lands.
      *
-     * Typically, users are redirected here after authentication.
+     * The authentication layer redirects here once credentials check out.
      *
      * @var string
      */
     public const HOME = '/admin/dashboard';
 
     /**
-     * The path to the "customer home" route for your application.
+     * Where a signed-in portal customer lands.
      *
-     * This is used by Laravel authentication to redirect customers after login.
+     * The customer guard redirects here once credentials check out.
      *
      * @var string
      */
     public const CUSTOMER_HOME = '/customer/dashboard';
 
     /**
-     * Bootstrap any application services.
+     * Boot the application-wide behaviour.
      */
     public function boot(): void
     {
+        $this->bootHttps();
 
-        if (InstallUtils::isDbCreated()) {
+        CustomerUrl::trustPortalHosts();
+
+        ModelIdentityMap::enforce();
+
+        Factory::guessFactoryNamesUsing(
+            fn (string $model): string => 'Database\\Factories\\'.class_basename($model).'Factory'
+        );
+
+        // Navigation is built from config only once there is a schema to talk
+        // to; during a fresh install the tables do not exist yet.
+        if (InstallationState::isDbCreated()) {
             $this->addMenus();
         }
 
-        Gate::policy(Role::class, RolePolicy::class);
-
-        View::addNamespace('pdf_templates', storage_path('app/templates/pdf'));
-
-        $this->bootAuth();
         $this->bootBroadcast();
 
-        // In demo mode, prevent all outgoing emails and notifications
+        // The public demo build must never put real mail on the wire. Its
+        // notices still reach the bell: the mail channel sends through the
+        // faked mailer too.
         if (config('app.env') === 'demo') {
             Mail::fake();
-            Notification::fake();
         }
     }
 
     /**
-     * Register any application services.
+     * Register container bindings.
      */
     public function register(): void
     {
-        BouncerModels::scope(new DefaultScope);
+        BouncerModels::scope(new BouncerDefaultScope);
     }
 
+    /**
+     * Publish every navigation tree the SPA can ask for.
+     *
+     * Keys are the registered menu names; values are the config entries each
+     * one is built from. Note the customer portal menu is registered under a
+     * name that differs from its config key.
+     */
     public function addMenus()
     {
-        // main menu
-        \Menu::make('main_menu', function ($menu) {
-            foreach (config('invoiceshelf.main_menu') as $data) {
-                $this->generateMenu($menu, $data);
-            }
-        });
+        $sources = [
+            'main_menu' => 'invoiceshelf.main_menu',
+            'admin_menu' => 'invoiceshelf.admin_menu',
+            'setting_menu' => 'invoiceshelf.setting_menu',
+            'customer_portal_menu' => 'invoiceshelf.customer_menu',
+        ];
 
-        // setting menu
-        \Menu::make('setting_menu', function ($menu) {
-            foreach (config('invoiceshelf.setting_menu') as $data) {
-                $this->generateMenu($menu, $data);
-            }
-        });
-
-        \Menu::make('customer_portal_menu', function ($menu) {
-            foreach (config('invoiceshelf.customer_menu') as $data) {
-                $this->generateMenu($menu, $data);
-            }
-        });
+        foreach ($sources as $name => $configKey) {
+            \Menu::make($name, function ($menu) use ($configKey) {
+                foreach (config($configKey) as $data) {
+                    $this->generateMenu($menu, $data);
+                }
+            });
+        }
     }
 
+    /**
+     * Append one configured entry to a menu under construction.
+     *
+     * Everything past the title and link rides along as item metadata, which
+     * is what the bootstrap endpoints filter and hand to the frontend.
+     */
     public function generateMenu($menu, $data)
     {
-        $menu->add($data['title'], $data['link'])
-            ->data('icon', $data['icon'])
-            ->data('name', $data['name'])
-            ->data('owner_only', $data['owner_only'])
-            ->data('ability', $data['ability'])
-            ->data('model', $data['model'])
-            ->data('group', $data['group']);
+        $item = $menu->add($data['title'], $data['link']);
+
+        $meta = [
+            'icon' => $data['icon'],
+            'name' => $data['name'],
+            'owner_only' => $data['owner_only'],
+            'super_admin_only' => $data['super_admin_only'] ?? false,
+            'ability' => $data['ability'],
+            'any_abilities' => $data['any_abilities'] ?? [],
+            'model' => $data['model'],
+            'group' => $data['group'],
+            'group_label' => $data['group_label'] ?? '',
+            'priority' => $data['priority'] ?? 100,
+            // What the public demo refuses to change is not offered either.
+            'hidden' => ($data['hidden_in_demo'] ?? false) && DemoMode::enabled(),
+        ];
+
+        foreach ($meta as $key => $value) {
+            $item->data($key, $value);
+        }
     }
 
-    public function bootAuth()
+    /**
+     * Pin generated URLs to https where the request cannot be trusted to say so.
+     *
+     * Behind a reverse proxy the scheme arrives in X-Forwarded-Proto, which the
+     * request only honours when the proxy is covered by TRUSTED_PROXIES. A list
+     * that names the proxy's LAN address rather than the address the container
+     * sees leaves the scheme at http, and the post-login redirect then points at
+     * http://, which the browser refuses.
+     */
+    public function bootHttps(): void
     {
-
-        Gate::define('create company', [CompanyPolicy::class, 'create']);
-        Gate::define('transfer company ownership', [CompanyPolicy::class, 'transferOwnership']);
-        Gate::define('delete company', [CompanyPolicy::class, 'delete']);
-
-        Gate::define('manage modules', [ModulesPolicy::class, 'manageModules']);
-
-        Gate::define('manage settings', [SettingsPolicy::class, 'manageSettings']);
-        Gate::define('manage company', [SettingsPolicy::class, 'manageCompany']);
-        Gate::define('manage backups', [SettingsPolicy::class, 'manageBackups']);
-        Gate::define('manage file disk', [SettingsPolicy::class, 'manageFileDisk']);
-        Gate::define('manage email config', [SettingsPolicy::class, 'manageEmailConfig']);
-        Gate::define('manage pdf config', [SettingsPolicy::class, 'managePDFConfig']);
-        Gate::define('manage notes', [NotePolicy::class, 'manageNotes']);
-        Gate::define('view notes', [NotePolicy::class, 'viewNotes']);
-
-        Gate::define('send invoice', [InvoicePolicy::class, 'send']);
-        Gate::define('send estimate', [EstimatePolicy::class, 'send']);
-        Gate::define('send payment', [PaymentPolicy::class, 'send']);
-
-        Gate::define('delete multiple items', [ItemPolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple customers', [CustomerPolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple users', [UserPolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple invoices', [InvoicePolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple estimates', [EstimatePolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple expenses', [ExpensePolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple payments', [PaymentPolicy::class, 'deleteMultiple']);
-        Gate::define('delete multiple recurring invoices', [RecurringInvoicePolicy::class, 'deleteMultiple']);
-
-        Gate::define('view dashboard', [DashboardPolicy::class, 'view']);
-
-        Gate::define('view report', [ReportPolicy::class, 'viewReport']);
-
-        Gate::define('owner only', [OwnerPolicy::class, 'managedByOwner']);
+        if ($this->shouldForceHttps()) {
+            URL::forceScheme('https');
+        }
     }
 
+    /**
+     * Whether absolute URLs should be written as https.
+     *
+     * FORCE_HTTPS decides it when set to something meaningful; an empty value is
+     * treated as absent so a compose file passing an unset variable through does
+     * not count as "no". Otherwise an https APP_URL is taken as the intent.
+     */
+    protected function shouldForceHttps(): bool
+    {
+        $forced = config('app.force_https');
+
+        if (is_bool($forced)) {
+            return $forced;
+        }
+
+        if (is_string($forced) && trim($forced) !== '') {
+            return filter_var($forced, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return str_starts_with((string) config('app.url'), 'https://');
+    }
+
+    /**
+     * Expose the broadcasting auth endpoint behind the API guard.
+     */
     public function bootBroadcast()
     {
         Broadcast::routes(['middleware' => 'api.auth']);

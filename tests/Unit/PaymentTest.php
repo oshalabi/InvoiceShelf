@@ -1,6 +1,8 @@
 <?php
 
-use App\Models\Payment;
+use App\Domains\Receivables\Models\Payment;
+use App\Domains\Receivables\Models\PaymentAllocation;
+use App\Domains\Sales\Models\Invoice;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {
@@ -8,10 +10,19 @@ beforeEach(function () {
     Artisan::call('db:seed', ['--class' => 'DemoSeeder', '--force' => true]);
 });
 
-test('payment belongs to invoice', function () {
-    $payment = Payment::factory()->forInvoice()->create();
+test('payment has invoice allocations', function () {
+    $payment = Payment::factory()->create();
+    $invoice = Invoice::factory()->create([
+        'company_id' => $payment->company_id,
+        'customer_id' => $payment->customer_id,
+        'currency_id' => $payment->currency_id,
+    ]);
+    PaymentAllocation::factory()->create([
+        'payment_id' => $payment->id,
+        'invoice_id' => $invoice->id,
+    ]);
 
-    $this->assertTrue($payment->invoice()->exists());
+    $this->assertTrue($payment->invoices()->exists());
 });
 
 test('payment belongs to customer', function () {

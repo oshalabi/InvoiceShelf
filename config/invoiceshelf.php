@@ -1,22 +1,27 @@
 <?php
 
-use App\Models\Customer;
-use App\Models\CustomField;
-use App\Models\Estimate;
-use App\Models\ExchangeRateProvider;
-use App\Models\Expense;
-use App\Models\Invoice;
-use App\Models\Item;
-use App\Models\Note;
-use App\Models\Payment;
-use App\Models\RecurringInvoice;
-use App\Models\TaxType;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Contacts\Models\Customer;
+use App\Domains\Metadata\Models\CustomField;
+use App\Domains\Metadata\Models\Note;
+use App\Domains\Money\Models\ExchangeRateProvider;
+use App\Domains\Purchases\Models\Bill;
+use App\Domains\Purchases\Models\Expense;
+use App\Domains\Purchases\Models\RecurringCost;
+use App\Domains\Purchases\Models\Supplier;
+use App\Domains\Purchases\Models\SupplierCredit;
+use App\Domains\Purchases\Models\SupplierPayment;
+use App\Domains\Purchases\Models\SupplierRefund;
+use App\Domains\Receivables\Models\Payment;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\Invoice;
+use App\Domains\Taxation\Models\TaxType;
 
 return [
     /*
     * Minimum php version.
     */
-    'min_php_version' => '8.4.0',
+    'min_php_version' => '8.4.1',
 
     /*
     * Minimum mysql version.
@@ -43,9 +48,138 @@ return [
     'min_sqlite_version' => '3.35.0',
 
     /*
-    * Marketplace url.
+    * Marketplace and updater base URL.
+    *
+    * The marketplace client (App\Platform\Modules\Marketplace\MarketplaceClient) and
+    * updater (App\Platform\Operations\Update\Updater) both use this value as
+    * their HTTP base URI (the updater via CallsReleaseServer::getRemote()).
+    * Override via INVOICESHELF_BASE_URL in .env to point a self-hosted instance or local
+    * dev environment at a non-production marketplace (e.g. a local checkout
+    * of the invoiceshelf/website repo).
     */
-    'base_url' => 'https://invoiceshelf.com',
+    'base_url' => env('INVOICESHELF_BASE_URL', 'https://invoiceshelf.com'),
+
+    /*
+    * Announcements from the InvoiceShelf project, read every hour from
+    * {base_url}/api/announcements and shown to everyone on the install
+    * alongside the ones a super admin writes here. Set
+    * INVOICESHELF_ANNOUNCEMENTS_FEED=false to stop asking.
+    */
+    'announcements' => [
+        'feed' => (bool) env('INVOICESHELF_ANNOUNCEMENTS_FEED', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Thin clients (mobile apps)
+    |--------------------------------------------------------------------------
+    |
+    | The hostname a Capacitor client serves its bundle from, which decides the
+    | two origins config/cors.php allows by default. It must not be `localhost`
+    | or `127.0.0.1`: Sanctum's default stateful list contains both, so a
+    | request from such an origin is treated as a same-site browser request and
+    | gets session plus CSRF handling, which makes every bearer POST fail
+    | with 419.
+    |
+    | `min_version` is the oldest client build this server will talk to; the
+    | client reads it from the manifest and tells the user to update.
+    |
+    */
+    'client' => [
+        'hostname' => env('INVOICESHELF_CLIENT_HOSTNAME', 'app.invoiceshelf.internal'),
+        'min_version' => env('INVOICESHELF_CLIENT_MIN_VERSION', '3.0.0-alpha.4'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Secure marketplace
+    |--------------------------------------------------------------------------
+    |
+    | Release manifests are signed by the marketplace. Keep production signing
+    | keys here rather than accepting a key supplied by a catalogue response.
+    | Values are base64 encoded Ed25519 public keys (32 byte raw keys). The
+    | official key is a built-in trust anchor; MARKETPLACE_PUBLIC_KEYS can add
+    | keys for rotation or replace an existing key ID during an emergency roll.
+    |
+    */
+    'marketplace' => [
+        'channel' => env('MARKETPLACE_CHANNEL', 'stable'),
+        'module_api_version' => (string) env('MARKETPLACE_MODULE_API_VERSION', '1.5.0'),
+        // JSON object: {"key-id":"base64-ed25519-public-key"}. Keys add to
+        // (or replace values in) the built-in pinned map. Key identity is part
+        // of the signed release and must match this trusted map.
+        'public_keys' => array_replace(
+            [
+                'official-modules-2026-01' => 'sIDGuOAaMVzPv9I/GPbWp9ci5aUI5HcM5rZ0tKxW6dc=',
+                'official-modules-2026-09' => 'VK8b5GsK7T7JFcQutq6Rv/xQ98Ata/HP1C74ZNNlYEo=',
+            ],
+            json_decode((string) env('MARKETPLACE_PUBLIC_KEYS', '{}'), true) ?: [],
+        ),
+        'max_zip_entries' => (int) env('MARKETPLACE_MAX_ZIP_ENTRIES', 10000),
+        'max_zip_compressed_bytes' => (int) env('MARKETPLACE_MAX_ZIP_COMPRESSED_BYTES', 134217728),
+        'max_zip_uncompressed_bytes' => (int) env('MARKETPLACE_MAX_ZIP_UNCOMPRESSED_BYTES', 256000000),
+        'max_zip_compression_ratio' => (int) env('MARKETPLACE_MAX_ZIP_COMPRESSION_RATIO', 200),
+        'lease_seconds' => (int) env('MARKETPLACE_LEASE_SECONDS', 900),
+    ],
+
+    /*
+    * The "Powered by" line under the sign-in pages, public documents and
+    * emails. A host may put its own name and address there, or hide it with
+    * INVOICESHELF_POWERED_BY=false.
+    */
+    'powered_by' => [
+        'enabled' => (bool) env('INVOICESHELF_POWERED_BY', true),
+        'name' => env('INVOICESHELF_POWERED_BY_NAME', 'InvoiceShelf'),
+        'url' => env('INVOICESHELF_POWERED_BY_URL', 'https://invoiceshelf.com'),
+    ],
+
+    /*
+    * The customer portal on a host of its own, such as
+    * https://clients-acme.example.com. When set, every link sent to a customer
+    * points there, that host serves the portal and public documents only, and
+    * the app host sends customers there. CUSTOMER_PORTAL_HOSTS lists every
+    * host that serves the portal (comma separated) when there is more than
+    * the URL's own. Unset, the portal lives on the app host as always.
+    */
+    'customer_portal' => [
+        'url' => env('CUSTOMER_PORTAL_URL'),
+        'hosts' => env('CUSTOMER_PORTAL_HOSTS'),
+    ],
+
+    /*
+    * Where the source code of the running version is, offered to everyone who
+    * uses the install (AGPL section 13). {version} becomes the running
+    * version. A modified build points it at its own source.
+    */
+    'source_url' => env('INVOICESHELF_SOURCE_URL', 'https://github.com/InvoiceShelf/InvoiceShelf/tree/{version}'),
+
+    /*
+    * Whether the app runs inside the official Docker image, which sets
+    * CONTAINERIZED=true in its environment (and inject.sh in .env).
+    * When true, the in-app updater is disabled (the API refuses and the UI hides
+    * it) because containers upgrade via `docker compose pull`, not by copying
+    * release files over the read-only/ephemeral image filesystem.
+    */
+    'containerized' => env('CONTAINERIZED', false),
+
+    /*
+    * Paths protected from cleanup during updates.
+    * The updater will never delete files under these prefixes.
+    */
+    'update_protected_paths' => [
+        '.env',
+        'storage',
+        'vendor',
+        'node_modules',
+        'Modules',
+        'public/storage',
+        '.git',
+        'bootstrap/cache',
+        'manifest.json',
+        'android',
+        'ios',
+        'mobile',
+    ],
 
     /*
     * List of languages supported by InvoiceShelf.
@@ -63,6 +197,7 @@ return [
         ['code' => 'fr', 'name' => 'French'],
         ['code' => 'de', 'name' => 'German'],
         ['code' => 'el', 'name' => 'Greek'],
+        ['code' => 'he', 'name' => 'עברית'],
         ['code' => 'hi', 'name' => 'Hindi'],
         ['code' => 'id', 'name' => 'Indonesian'],
         ['code' => 'it', 'name' => 'Italian'],
@@ -87,7 +222,14 @@ return [
         ['code' => 'vi', 'name' => 'Tiếng Việt'],
         ['code' => 'tr', 'name' => 'Turkish'],
         ['code' => 'uk', 'name' => 'Ukrainian'],
+        ['code' => 'ur', 'name' => 'اردو'],
     ],
+
+    /*
+    * Languages that read right to left. The app shell renders dir="rtl" for
+    * them; resources/scripts/utils/direction.ts keeps the same list.
+    */
+    'rtl_languages' => ['ar', 'fa', 'he', 'ur'],
 
     /*
     * List of Fiscal Years
@@ -105,6 +247,46 @@ return [
         ['key' => 'settings.preferences.fiscal_years.october_september', 'value' => '10-9'],
         ['key' => 'settings.preferences.fiscal_years.november_october', 'value' => '11-10'],
         ['key' => 'settings.preferences.fiscal_years.december_november', 'value' => '12-11'],
+    ],
+
+    /*
+    * Curated list of UN/ECE Recommendation 20 Unit Codes (EN 16931 BT-130).
+    *
+    * This is the single source of truth for the Unit Code: the unit management
+    * UI renders it as a dropdown (via `GET /api/v1/config?key=unit_codes`) and
+    * the Unit API validates submitted codes against it. `C62` (piece) is the
+    * default for every unit.
+    */
+    'unit_codes' => [
+        ['key' => 'settings.customization.items.unit_codes.piece', 'value' => 'C62'],
+        ['key' => 'settings.customization.items.unit_codes.hour', 'value' => 'HUR'],
+        ['key' => 'settings.customization.items.unit_codes.day', 'value' => 'DAY'],
+        ['key' => 'settings.customization.items.unit_codes.week', 'value' => 'WEE'],
+        ['key' => 'settings.customization.items.unit_codes.month', 'value' => 'MON'],
+        ['key' => 'settings.customization.items.unit_codes.year', 'value' => 'ANN'],
+        ['key' => 'settings.customization.items.unit_codes.minute', 'value' => 'MIN'],
+        ['key' => 'settings.customization.items.unit_codes.second', 'value' => 'SEC'],
+        ['key' => 'settings.customization.items.unit_codes.kilogram', 'value' => 'KGM'],
+        ['key' => 'settings.customization.items.unit_codes.gram', 'value' => 'GRM'],
+        ['key' => 'settings.customization.items.unit_codes.milligram', 'value' => 'MGM'],
+        ['key' => 'settings.customization.items.unit_codes.tonne', 'value' => 'TNE'],
+        ['key' => 'settings.customization.items.unit_codes.pound', 'value' => 'LBR'],
+        ['key' => 'settings.customization.items.unit_codes.ounce', 'value' => 'ONZ'],
+        ['key' => 'settings.customization.items.unit_codes.litre', 'value' => 'LTR'],
+        ['key' => 'settings.customization.items.unit_codes.millilitre', 'value' => 'MLT'],
+        ['key' => 'settings.customization.items.unit_codes.metre', 'value' => 'MTR'],
+        ['key' => 'settings.customization.items.unit_codes.centimetre', 'value' => 'CMT'],
+        ['key' => 'settings.customization.items.unit_codes.millimetre', 'value' => 'MMT'],
+        ['key' => 'settings.customization.items.unit_codes.kilometre', 'value' => 'KMT'],
+        ['key' => 'settings.customization.items.unit_codes.square_metre', 'value' => 'MTK'],
+        ['key' => 'settings.customization.items.unit_codes.cubic_metre', 'value' => 'MTQ'],
+        ['key' => 'settings.customization.items.unit_codes.inch', 'value' => 'INH'],
+        ['key' => 'settings.customization.items.unit_codes.foot', 'value' => 'FOT'],
+        ['key' => 'settings.customization.items.unit_codes.box', 'value' => 'XBX'],
+        ['key' => 'settings.customization.items.unit_codes.package', 'value' => 'XPK'],
+        ['key' => 'settings.customization.items.unit_codes.set', 'value' => 'SET'],
+        ['key' => 'settings.customization.items.unit_codes.dozen', 'value' => 'DZN'],
+        ['key' => 'settings.customization.items.unit_codes.kilowatt_hour', 'value' => 'KWH'],
     ],
 
     /*
@@ -130,16 +312,6 @@ return [
     * List of setting menu
     */
     'setting_menu' => [
-        [
-            'title' => 'settings.menu_title.account_settings',
-            'group' => '',
-            'name' => 'Account Settings',
-            'link' => '/admin/settings/account-settings',
-            'icon' => 'UserIcon',
-            'owner_only' => false,
-            'ability' => '',
-            'model' => '',
-        ],
         [
             'title' => 'settings.menu_title.company_information',
             'group' => '',
@@ -171,30 +343,21 @@ return [
             'model' => '',
         ],
         [
-            'title' => 'settings.menu_title.pdf_generation',
-            'group' => '',
-            'name' => 'PDF Generation',
-            'link' => '/admin/settings/pdf-generation',
-            'icon' => 'DocumentIcon',
-            'owner_only' => true,
-            'ability' => '',
-            'model' => '',
-        ],
-        [
             'title' => 'settings.roles.title',
             'group' => '',
-            'name' => 'Roles',
-            'link' => '/admin/settings/roles-settings',
+            'name' => 'Company Roles',
+            'link' => '/admin/settings/roles',
             'icon' => 'UserGroupIcon',
             'owner_only' => true,
             'ability' => '',
             'model' => '',
+            'hidden_in_demo' => true,
         ],
         [
             'title' => 'settings.menu_title.exchange_rate',
             'group' => '',
             'name' => 'Exchange Rate Provider',
-            'link' => '/admin/settings/exchange-rate-provider',
+            'link' => '/admin/settings/exchange-rate',
             'icon' => 'BanknotesIcon',
             'owner_only' => false,
             'ability' => 'view-exchange-rate-provider',
@@ -206,6 +369,16 @@ return [
             'name' => 'Notifications',
             'link' => '/admin/settings/notifications',
             'icon' => 'BellIcon',
+            'owner_only' => true,
+            'ability' => '',
+            'model' => '',
+        ],
+        [
+            'title' => 'settings.menu_title.payment_reminders',
+            'group' => '',
+            'name' => 'Payment reminders',
+            'link' => '/admin/settings/payment-reminders',
+            'icon' => 'ClockIcon',
             'owner_only' => true,
             'ability' => '',
             'model' => '',
@@ -224,7 +397,7 @@ return [
             'title' => 'settings.menu_title.payment_modes',
             'group' => '',
             'name' => 'Payment modes',
-            'link' => '/admin/settings/payment-mode',
+            'link' => '/admin/settings/payment-modes',
             'icon' => 'CreditCardIcon',
             'owner_only' => false,
             'ability' => 'view-payment',
@@ -254,50 +427,31 @@ return [
             'title' => 'settings.menu_title.expense_category',
             'group' => '',
             'name' => 'Expense Category',
-            'link' => '/admin/settings/expense-category',
+            'link' => '/admin/settings/expense-categories',
             'icon' => 'ClipboardDocumentListIcon',
             'owner_only' => false,
             'ability' => 'view-expense',
             'model' => Expense::class,
         ],
         [
-            'title' => 'settings.mail.mail_config',
+            'title' => 'settings.mail.company_mail_config',
             'group' => '',
             'name' => 'Mail Configuration',
-            'link' => '/admin/settings/mail-configuration',
+            'link' => '/admin/settings/mail-config',
             'icon' => 'EnvelopeIcon',
             'owner_only' => true,
             'ability' => '',
             'model' => '',
+            'hidden_in_demo' => true,
         ],
         [
-            'title' => 'settings.menu_title.file_disk',
+            'title' => 'settings.menu_title.module_configuration',
             'group' => '',
-            'name' => 'File Disk',
-            'link' => '/admin/settings/file-disk',
-            'icon' => 'FolderIcon',
-            'owner_only' => true,
-            'ability' => '',
-            'model' => '',
-        ],
-        [
-            'title' => 'settings.menu_title.backup',
-            'group' => '',
-            'name' => 'Backup',
-            'link' => '/admin/settings/backup',
-            'icon' => 'CircleStackIcon',
-            'owner_only' => true,
-            'ability' => '',
-            'model' => '',
-        ],
-        [
-            'title' => 'settings.menu_title.update_app',
-            'group' => '',
-            'name' => 'Update App',
-            'link' => '/admin/settings/update-app',
-            'icon' => 'ArrowPathIcon',
-            'owner_only' => true,
-            'ability' => '',
+            'name' => 'Module Configuration',
+            'link' => '/admin/settings/modules',
+            'icon' => 'PuzzlePieceIcon',
+            'owner_only' => false,
+            'ability' => 'manage modules',
             'model' => '',
         ],
     ],
@@ -308,7 +462,9 @@ return [
     'main_menu' => [
         [
             'title' => 'navigation.dashboard',
-            'group' => 1,
+            'group' => 'main',
+            'group_label' => '',
+            'priority' => 10,
             'link' => '/admin/dashboard',
             'icon' => 'HomeIcon',
             'name' => 'Dashboard',
@@ -318,7 +474,9 @@ return [
         ],
         [
             'title' => 'navigation.customers',
-            'group' => 1,
+            'group' => 'documents',
+            'group_label' => 'purchases.sales',
+            'priority' => 5,
             'link' => '/admin/customers',
             'icon' => 'UserIcon',
             'name' => 'Customers',
@@ -328,7 +486,9 @@ return [
         ],
         [
             'title' => 'navigation.items',
-            'group' => 1,
+            'group' => 'main',
+            'group_label' => '',
+            'priority' => 30,
             'link' => '/admin/items',
             'icon' => 'StarIcon',
             'name' => 'Items',
@@ -338,7 +498,9 @@ return [
         ],
         [
             'title' => 'navigation.estimates',
-            'group' => 2,
+            'group' => 'documents',
+            'group_label' => 'purchases.sales',
+            'priority' => 10,
             'link' => '/admin/estimates',
             'icon' => 'DocumentIcon',
             'name' => 'Estimates',
@@ -348,7 +510,9 @@ return [
         ],
         [
             'title' => 'navigation.invoices',
-            'group' => 2,
+            'group' => 'documents',
+            'group_label' => 'purchases.sales',
+            'priority' => 20,
             'link' => '/admin/invoices',
             'icon' => 'DocumentTextIcon',
             'name' => 'Invoices',
@@ -357,18 +521,10 @@ return [
             'model' => Invoice::class,
         ],
         [
-            'title' => 'navigation.recurring-invoices',
-            'group' => 2,
-            'link' => '/admin/recurring-invoices',
-            'icon' => 'DocumentTextIcon',
-            'name' => 'Recurring Invoices',
-            'owner_only' => false,
-            'ability' => 'view-recurring-invoice',
-            'model' => RecurringInvoice::class,
-        ],
-        [
             'title' => 'navigation.payments',
-            'group' => 2,
+            'group' => 'documents',
+            'group_label' => 'purchases.sales',
+            'priority' => 30,
             'link' => '/admin/payments',
             'icon' => 'CreditCardIcon',
             'name' => 'Payments',
@@ -377,43 +533,84 @@ return [
             'model' => Payment::class,
         ],
         [
+            'title' => 'purchases.suppliers',
+            'group' => 'purchases',
+            'group_label' => 'purchases.title',
+            'priority' => 10,
+            'link' => '/admin/suppliers',
+            'icon' => 'UserGroupIcon',
+            'name' => 'Supplier',
+            'owner_only' => false,
+            'ability' => 'view-supplier',
+            'model' => Supplier::class,
+        ],
+        [
+            'title' => 'purchases.bills',
+            'group' => 'purchases',
+            'group_label' => 'purchases.title',
+            'priority' => 20,
+            'link' => '/admin/bills',
+            'icon' => 'DocumentTextIcon',
+            'name' => 'Bill',
+            'owner_only' => false,
+            'ability' => 'view-bill',
+            'model' => Bill::class,
+            'any_abilities' => [
+                ['ability' => 'view-bill', 'model' => Bill::class],
+                ['ability' => 'view-supplier-credit', 'model' => SupplierCredit::class],
+                ['ability' => 'view-recurring-cost', 'model' => RecurringCost::class],
+            ],
+        ],
+        [
             'title' => 'navigation.expenses',
-            'group' => 2,
+            'group' => 'purchases',
+            'group_label' => 'purchases.title',
+            'priority' => 30,
             'link' => '/admin/expenses',
             'icon' => 'CalculatorIcon',
             'name' => 'Expenses',
             'owner_only' => false,
             'ability' => 'view-expense',
             'model' => Expense::class,
+            'any_abilities' => [
+                ['ability' => 'view-expense', 'model' => Expense::class],
+                ['ability' => 'view-recurring-cost', 'model' => RecurringCost::class],
+            ],
         ],
-        // TODO: remove env check once the module management os implemented.
-        ...(
-            env('APP_ENV', 'production') == 'development' ? [
-                [
-                    'title' => 'navigation.modules',
-                    'group' => 3,
-                    'link' => '/admin/modules',
-                    'icon' => 'PuzzlePieceIcon',
-                    'name' => 'Modules',
-                    'owner_only' => true,
-                    'ability' => '',
-                    'model' => '',
-                ],
-            ] : []
-        ),
         [
-            'title' => 'navigation.users',
-            'group' => 3,
-            'link' => '/admin/users',
+            'title' => 'navigation.payments',
+            'group' => 'purchases',
+            'group_label' => 'purchases.title',
+            'priority' => 40,
+            'link' => '/admin/supplier-payments',
+            'icon' => 'CreditCardIcon',
+            'name' => 'SupplierPayment',
+            'owner_only' => false,
+            'ability' => 'view-supplier-payment',
+            'model' => SupplierPayment::class,
+            'any_abilities' => [
+                ['ability' => 'view-supplier-payment', 'model' => SupplierPayment::class],
+                ['ability' => 'view-supplier-refund', 'model' => SupplierRefund::class],
+            ],
+        ],
+        [
+            'title' => 'navigation.members',
+            'group' => 'admin',
+            'group_label' => 'navigation.admin',
+            'priority' => 20,
+            'link' => '/admin/members',
             'icon' => 'UsersIcon',
-            'name' => 'Users',
+            'name' => 'Members',
             'owner_only' => true,
             'ability' => '',
             'model' => '',
+            'hidden_in_demo' => true,
         ],
         [
             'title' => 'navigation.reports',
-            'group' => 3,
+            'group' => 'admin',
+            'group_label' => 'navigation.admin',
+            'priority' => 30,
             'link' => '/admin/reports',
             'icon' => 'ChartBarIcon',
             'name' => 'Reports',
@@ -423,11 +620,74 @@ return [
         ],
         [
             'title' => 'navigation.settings',
-            'group' => 3,
+            'group' => 'admin',
+            'group_label' => 'navigation.admin',
+            'priority' => 40,
             'link' => '/admin/settings',
             'icon' => 'CogIcon',
             'name' => 'Settings',
             'owner_only' => false,
+            'ability' => '',
+            'model' => '',
+        ],
+    ],
+
+    /*
+    * List of admin mode menu (super admin only)
+    */
+    'admin_menu' => [
+        [
+            'title' => 'navigation.dashboard',
+            'group' => 1,
+            'link' => '/admin/administration/dashboard',
+            'icon' => 'ServerIcon',
+            'name' => 'AdminDashboard',
+            'owner_only' => false,
+            'super_admin_only' => true,
+            'ability' => '',
+            'model' => '',
+        ],
+        [
+            'title' => 'navigation.companies',
+            'group' => 1,
+            'link' => '/admin/administration/companies',
+            'icon' => 'BuildingOfficeIcon',
+            'name' => 'AdminCompanies',
+            'owner_only' => false,
+            'super_admin_only' => true,
+            'ability' => '',
+            'model' => '',
+        ],
+        [
+            'title' => 'navigation.all_users',
+            'group' => 1,
+            'link' => '/admin/administration/users',
+            'icon' => 'UsersIcon',
+            'name' => 'AdminUsers',
+            'owner_only' => false,
+            'super_admin_only' => true,
+            'ability' => '',
+            'model' => '',
+        ],
+        [
+            'title' => 'navigation.modules',
+            'group' => 1,
+            'link' => '/admin/administration/modules',
+            'icon' => 'PuzzlePieceIcon',
+            'name' => 'AdminModules',
+            'owner_only' => false,
+            'super_admin_only' => true,
+            'ability' => '',
+            'model' => '',
+        ],
+        [
+            'title' => 'navigation.settings',
+            'group' => 1,
+            'link' => '/admin/administration/settings/mail-configuration',
+            'icon' => 'CogIcon',
+            'name' => 'AdminSettings',
+            'owner_only' => false,
+            'super_admin_only' => true,
             'ability' => '',
             'model' => '',
         ],
@@ -505,24 +765,13 @@ return [
     ],
 
     /*
-    * List of exchange rate provider (currency converter server's)
+    * Exchange rate drivers and Currency Converter server options used to live here as
+    * static arrays. Both have moved into the module Registry — built-in drivers are
+    * registered by App\Domains\Money\MoneyServiceProvider, and custom drivers can be
+    * registered by modules via Registry::registerExchangeRateDriver(). The driver
+    * list is served to the frontend by ConfigController via the same
+    * /api/v1/config?key=exchange_rate_drivers endpoint.
     */
-    'currency_converter_servers' => [
-        ['key' => 'settings.preferences.premium', 'value' => 'PREMIUM'],
-        ['key' => 'settings.preferences.prepaid', 'value' => 'PREPAID'],
-        ['key' => 'settings.preferences.free', 'value' => 'FREE'],
-        ['key' => 'settings.preferences.dedicated', 'value' => 'DEDICATED'],
-    ],
-
-    /*
-    * List of exchange rate drivers
-    */
-    'exchange_rate_drivers' => [
-        ['key' => 'settings.exchange_rate.currency_converter', 'value' => 'currency_converter'],
-        ['key' => 'settings.exchange_rate.currency_freak', 'value' => 'currency_freak'],
-        ['key' => 'settings.exchange_rate.currency_layer', 'value' => 'currency_layer'],
-        ['key' => 'settings.exchange_rate.open_exchange_rate', 'value' => 'open_exchange_rate'],
-    ],
 
     /*
     * List of Custom field supported models
@@ -533,5 +782,21 @@ return [
         'Invoice',
         'Payment',
         'Expense',
+    ],
+
+    /*
+    * The public demo (APP_ENV=demo): what `php artisan reset:app` rebuilds on
+    * the schedule below, and the sign-ins the login pages offer visitors.
+    * `modules` lists the marketplace modules to install, separated by commas:
+    * slug@version pins a release, a bare slug takes the newest release that
+    * fits this version. A module that cannot be installed is left out.
+    */
+    'demo' => [
+        'reset_cron' => env('DEMO_RESET_CRON', '0 */6 * * *'),
+        'modules' => env('DEMO_MODULES', ''),
+        'email' => 'demo@invoiceshelf.com',
+        'password' => 'demo',
+        'portal_email' => 'customer@invoiceshelf.com',
+        'portal_password' => 'demo',
     ],
 ];

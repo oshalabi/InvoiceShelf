@@ -1,8 +1,8 @@
 <template>
-  <div class="bg-white rounded-lg shadow">
+  <div class="border glass rounded-xl">
     <div
       v-if="hasHeaderSlot"
-      class="px-5 py-4 text-black border-b border-gray-100 border-solid"
+      class="px-4 py-3.5 font-semibold border-b border-solid md:px-6 text-heading border-line-light"
     >
       <slot name="header" />
     </div>
@@ -11,29 +11,30 @@
     </div>
     <div
       v-if="hasFooterSlot"
-      class="px-5 py-4 border-t border-gray-100 border-solid sm:px-6"
+      class="px-4 py-3.5 border-t border-solid md:px-6 border-line-light"
     >
       <slot name="footer" />
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, useSlots } from 'vue'
 
-const props = defineProps({
-  containerClass: {
-    type: String,
-    default: 'px-4 py-5 sm:px-8 sm:py-8',
-  },
+interface Props {
+  containerClass?: string
+}
+
+withDefaults(defineProps<Props>(), {
+  containerClass: 'px-4 py-5 md:px-6 md:py-6',
 })
 
 const slots = useSlots()
 
-const hasHeaderSlot = computed(() => {
+const hasHeaderSlot = computed<boolean>(() => {
   return !!slots.header
 })
-const hasFooterSlot = computed(() => {
+const hasFooterSlot = computed<boolean>(() => {
   return !!slots.footer
 })
 </script>

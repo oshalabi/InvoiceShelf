@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\ExchangeRateLog;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Money\Models\Currency;
+use App\Domains\Money\Models\ExchangeRateLog;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ExchangeRateLogFactory extends Factory

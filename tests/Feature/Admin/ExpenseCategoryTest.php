@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\V1\Admin\Expense\ExpenseCategoriesController;
-use App\Http\Requests\ExpenseCategoryRequest;
-use App\Models\ExpenseCategory;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Purchases\Http\Controllers\Company\ExpenseCategoriesController;
+use App\Domains\Purchases\Http\Requests\ExpenseCategoryRequest;
+use App\Domains\Purchases\Models\ExpenseCategory;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
 

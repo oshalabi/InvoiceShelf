@@ -1,8 +1,6 @@
 <?php
 
-use App\Models\Company;
-use App\Models\FileDisk;
-use App\Space\ImageUtils;
+use App\Domains\Accounts\Models\Company;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;

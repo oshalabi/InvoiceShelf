@@ -2,10 +2,10 @@
 
 namespace Database\Factories;
 
-use App\Models\EmailLog;
-use App\Models\Estimate;
-use App\Models\Invoice;
-use App\Models\Payment;
+use App\Domains\Receivables\Models\Payment;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\Invoice;
+use App\Platform\Mail\Models\EmailLog;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class EmailLogFactory extends Factory
@@ -22,15 +22,15 @@ class EmailLogFactory extends Factory
      */
     public function definition(): array
     {
+        $mailable = $this->faker->randomElement([Invoice::class, Estimate::class, Payment::class]);
+
         return [
             'from' => $this->faker->unique()->safeEmail(),
             'to' => $this->faker->unique()->safeEmail(),
             'subject' => $this->faker->sentence(),
             'body' => $this->faker->text(),
-            'mailable_type' => $this->faker->randomElement([Invoice::class, Estimate::class, Payment::class]),
-            'mailable_id' => function (array $log) {
-                return $log['mailable_type']::factory();
-            },
+            'mailable_type' => (new $mailable)->getMorphClass(),
+            'mailable_id' => $mailable::factory(),
         ];
     }
 }

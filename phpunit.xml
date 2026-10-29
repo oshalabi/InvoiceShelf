@@ -19,6 +19,11 @@
     <env name="SESSION_DRIVER" value="array"/>
     <env name="APP_URL" value="http://invoiceshelf.test"/>
   </php>
+    <groups>
+        <exclude>
+            <group>isolated</group>
+        </exclude>
+    </groups>
   <source>
     <include>
       <directory suffix=".php">./app</directory>

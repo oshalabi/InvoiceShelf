@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Models\CustomField;
-use App\Models\CustomFieldValue;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Metadata\Models\CustomField;
+use App\Domains\Metadata\Models\CustomFieldValue;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CustomFieldValueFactory extends Factory

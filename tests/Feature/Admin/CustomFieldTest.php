@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\V1\Admin\CustomField\CustomFieldsController;
-use App\Http\Requests\CustomFieldRequest;
-use App\Models\CustomField;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Metadata\Http\Controllers\CustomFieldsController;
+use App\Domains\Metadata\Http\Requests\CustomFieldRequest;
+use App\Domains\Metadata\Models\CustomField;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
 
@@ -95,3 +95,14 @@ test('delete custom field', function () {
 
     $this->assertModelMissing($customField);
 });
+
+test('a field with no options saves', function (mixed $options) {
+    $data = CustomField::factory()->raw(['type' => 'Input', 'options' => $options]);
+
+    postJson('api/v1/custom-fields', $data)->assertStatus(201);
+
+    $this->assertDatabaseHas('custom_fields', ['name' => $data['name']]);
+})->with([
+    'an empty array, as the editor now sends' => [[]],
+    'null, which an older client may still send' => [null],
+]);

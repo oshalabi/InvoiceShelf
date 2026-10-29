@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\CustomField;
+use App\Domains\Metadata\Models\CustomField;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

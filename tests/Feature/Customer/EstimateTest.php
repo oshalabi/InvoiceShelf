@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Customer;
 
-use App\Models\Customer;
-use App\Models\Estimate;
+use App\Domains\Contacts\Models\Customer;
+use App\Domains\Sales\Models\Estimate;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\Sanctum;

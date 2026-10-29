@@ -1,0 +1,43 @@
+name: Tests
+
+# Called by publish.yaml and release.yaml rather than duplicated in both. The
+# release artifact's file list used to exist in two places and drift was only a
+# matter of time; the test definition should not repeat that.
+on:
+  workflow_call:
+
+jobs:
+  tests:
+    name: PHP Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version:
+          - 8.4
+          - 8.5
+    env:
+      extensions: bcmath, curl, dom, gd, imagick, json, libxml, mbstring, pcntl, pdo, pdo_mysql, zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP Action
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ${{ env.extensions }}
+          coverage: none
+          tools: pecl, composer
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@4.0.0
+
+      - name: Apply tests ${{ matrix.php-version }} (parallel)
+        run: php artisan test --parallel --exclude-group=serial-only
+
+      - name: Apply module, architecture and isolated tests ${{ matrix.php-version }} (serial)
+        run: |
+          php artisan test --group=modules
+          php artisan test --group=architecture
+          php artisan test --group=isolated

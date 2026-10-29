@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\PaymentMethod;
+use App\Domains\Receivables\Models\PaymentMethod;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

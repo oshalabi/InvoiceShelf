@@ -1,0 +1,511 @@
+<template>
+  <div
+    class="w-full px-5 py-4 mt-5 border glass rounded-xl lg:w-auto lg:min-w-[390px] lg:mt-7"
+  >
+    <!-- Subtotal -->
+    <div class="flex items-center justify-between w-full">
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span v-else class="text-sm leading-5 text-muted">
+        {{ $t('estimates.sub_total') }}
+      </span>
+
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span
+        v-else
+        class="flex items-center justify-center m-0 text-base font-medium text-heading"
+      >
+        <BaseFormatMoney :amount="store.getSubTotal" :currency="defaultCurrency" />
+      </span>
+    </div>
+
+    <!-- Net Total for per-item tax mode -->
+    <div v-if="formData.tax_per_item === 'YES'">
+      <div
+        v-if="formData.tax_included"
+        class="flex items-center justify-between w-full"
+      >
+        <BaseContentPlaceholders v-if="isLoading">
+          <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+        </BaseContentPlaceholders>
+        <span v-else class="text-sm leading-5 text-muted">
+          {{ $t('estimates.net_total') }}
+        </span>
+
+        <BaseContentPlaceholders v-if="isLoading">
+          <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+        </BaseContentPlaceholders>
+        <span
+          v-else
+          class="flex items-center justify-center m-0 text-base font-medium text-heading"
+        >
+          <BaseFormatMoney :amount="store.getNetTotal" :currency="currency" />
+        </span>
+      </div>
+    </div>
+
+    <!-- Item-wise tax breakdown -->
+    <div
+      v-for="tax in itemWiseTaxes"
+      :key="tax.tax_type_id"
+      class="flex items-center justify-between w-full"
+    >
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span
+        v-else-if="formData.tax_per_item === 'YES'"
+        class="m-0 text-sm leading-5 text-muted"
+      >
+        <template v-if="tax.calculation_type === 'percentage'">
+          {{ tax.name }} - {{ tax.percent }}%
+        </template>
+        <template v-else>
+          {{ tax.name }} -
+          <BaseFormatMoney :amount="tax.fixed_amount" :currency="defaultCurrency" />
+        </template>
+      </span>
+
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span
+        v-else-if="formData.tax_per_item === 'YES'"
+        class="flex items-center justify-center m-0 text-base font-medium text-heading"
+      >
+        <BaseFormatMoney :amount="tax.amount" :currency="defaultCurrency" />
+      </span>
+    </div>
+
+    <!-- Global Discount -->
+    <div
+      v-if="formData.discount_per_item === 'NO' || formData.discount_per_item === null"
+      class="flex items-center justify-between w-full mt-2"
+    >
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span v-else class="text-sm leading-5 text-muted">
+        {{ $t('estimates.discount') }}
+      </span>
+
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText
+          :lines="1"
+          class="w-24 h-8 border border-line-light rounded-md"
+        />
+      </BaseContentPlaceholders>
+      <div v-else class="flex" style="width: 140px" role="group">
+        <BaseInput
+          v-model="totalDiscount"
+          :aria-label="$t('estimates.discount')"
+          class="border-e-0 focus:border-e-2 rounded-se-sm rounded-ee-sm h-[38px]"
+        />
+        <BaseDropdown
+          position="bottom-end"
+          :label="$t('invoices.item.discount_type', { type: formData.discount_type === 'fixed' ? defaultCurrencySymbol : '%' })"
+        >
+          <template #activator>
+            <BaseButton
+              class="p-2 rounded-none rounded-se-md rounded-ee-md"
+              tag="span"
+              variant="white"
+            >
+              <span class="flex items-center">
+                {{ formData.discount_type === 'fixed' ? defaultCurrencySymbol : '%' }}
+                <BaseIcon name="ChevronDownIcon" class="w-4 h-4 ms-1 text-muted" />
+              </span>
+            </BaseButton>
+          </template>
+
+          <BaseDropdownItem @click="selectFixed">
+            {{ $t('general.fixed') }}
+          </BaseDropdownItem>
+
+          <BaseDropdownItem @click="selectPercentage">
+            {{ $t('general.percentage') }}
+          </BaseDropdownItem>
+        </BaseDropdown>
+      </div>
+    </div>
+
+    <!-- Net Total for global tax mode -->
+    <div
+      v-if="formData.tax_per_item === 'NO' || formData.tax_per_item === null"
+      class="flex items-center justify-between w-full mt-2"
+    >
+      <div
+        v-if="formData.tax_included"
+        class="flex items-center justify-between w-full"
+      >
+        <BaseContentPlaceholders v-if="isLoading">
+          <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+        </BaseContentPlaceholders>
+        <span v-else class="text-sm leading-5 text-muted">
+          {{ $t('estimates.net_total') }}
+        </span>
+
+        <BaseContentPlaceholders v-if="isLoading">
+          <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+        </BaseContentPlaceholders>
+        <span
+          v-else
+          class="flex items-center justify-center m-0 text-base font-medium text-heading"
+        >
+          <BaseFormatMoney :amount="store.getNetTotal" :currency="currency" />
+        </span>
+      </div>
+    </div>
+
+    <!-- Global taxes list -->
+    <div
+      v-if="formData.tax_per_item === 'NO' || formData.tax_per_item === null"
+    >
+      <div
+        v-for="tax in taxes"
+        :key="tax.id"
+        class="flex items-center justify-between w-full mt-2 text-sm"
+      >
+        <span v-if="tax.calculation_type === 'percentage'" class="leading-5 text-muted">
+          {{ tax.name }} ({{ tax.percent }} %)
+        </span>
+        <span v-else class="leading-5 text-muted">
+          {{ tax.name }} (<BaseFormatMoney :amount="tax.fixed_amount" :currency="currency" />)
+        </span>
+        <span class="flex items-center justify-center gap-1 text-base font-medium text-heading">
+          <BaseFormatMoney :amount="tax.amount" :currency="currency" />
+          <BaseIconButton
+            icon="TrashIcon"
+            :label="$t('general.remove_named', { name: tax.name })"
+            size="sm"
+            tone="danger"
+            class="-me-2"
+            @click="removeTax(tax.id)"
+          />
+        </span>
+      </div>
+    </div>
+
+    <!-- Add tax popup -->
+    <div
+      v-if="formData.tax_per_item === 'NO' || formData.tax_per_item === null"
+      ref="taxModal"
+      class="float-end pt-2 pb-4"
+    >
+      <TaxSelectPopup
+        :store-prop="storeProp"
+        :store="store"
+        :type="taxPopupType"
+        :tax-types="availableTaxTypes"
+        :company-currency="companyCurrency"
+        :can-create-tax-type="canCreateTaxType"
+        @select:tax-type="onSelectTax"
+      />
+    </div>
+
+    <!-- Total Amount -->
+    <div
+      class="flex items-center justify-between w-full pt-4 mt-4 border-t border-line-light border-solid"
+    >
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span v-else class="m-0 text-sm font-semibold leading-5 text-heading">
+        {{ $t('general.total_amount') }}
+      </span>
+
+      <BaseContentPlaceholders v-if="isLoading">
+        <BaseContentPlaceholdersText :lines="1" class="w-16 h-5" />
+      </BaseContentPlaceholders>
+      <span
+        v-else
+        class="flex items-center justify-center text-xl font-semibold text-heading"
+      >
+        <BaseFormatMoney :amount="store.getTotal" :currency="defaultCurrency" />
+      </span>
+    </div>
+
+    <!-- Base currency equivalent -->
+    <div v-if="showBaseCurrencyEquivalent" class="flex items-center justify-end w-full mt-1">
+      <span class="text-xs text-muted">
+        ≈ <BaseFormatMoney :amount="baseCurrencyGrandTotal" :currency="companyCurrency" />
+      </span>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import TaxSelectPopup from './TaxSelectPopup.vue'
+import { useCompanyStore } from '../../../stores/company.store'
+import { useUserStore } from '../../../stores/user.store'
+import { taxTypeService } from '../../../api/services/tax-type.service'
+import { generateClientId } from '../../../utils'
+import { ABILITIES } from '../../../config/abilities'
+import type { Currency } from '../../../types/domain/currency'
+import type { TaxType } from '../../../types/domain/tax'
+import type { DocumentFormData, DocumentTax, DocumentStore, DocumentItem } from './use-document-calculations'
+import { calcTaxAmount } from './use-document-calculations'
+
+interface Props {
+  store: DocumentStore & {
+    $patch: (fn: (state: Record<string, unknown>) => void) => void
+    [key: string]: unknown
+  }
+  storeProp: string
+  taxPopupType?: string
+  currency?: Currency | Record<string, unknown> | string
+  isLoading?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  taxPopupType: '',
+  currency: '',
+  isLoading: false,
+})
+
+const companyStore = useCompanyStore()
+const userStore = useUserStore()
+const taxModal = ref<HTMLElement | null>(null)
+const availableTaxTypes = ref<TaxType[]>([])
+
+const canCreateTaxType = computed<boolean>(() => {
+  return userStore.hasAbilities(ABILITIES.CREATE_TAX_TYPE)
+})
+
+onMounted(async () => {
+  try {
+    const response = await taxTypeService.list({
+      limit: 'all',
+      transaction_type: 'sales',
+    })
+    availableTaxTypes.value = response.data
+  } catch {
+    // Silently fail
+  }
+})
+
+const formData = computed<DocumentFormData>(() => {
+  return props.store[props.storeProp] as DocumentFormData
+})
+
+const defaultCurrency = computed(() => {
+  if (props.currency) {
+    return props.currency
+  }
+  return null
+})
+
+const defaultCurrencySymbol = computed<string>(() => {
+  const curr = defaultCurrency.value as Record<string, unknown> | null
+  return (curr?.symbol as string) ?? '$'
+})
+
+const companyCurrency = computed(() => companyStore.selectedCompanyCurrency)
+
+const showBaseCurrencyEquivalent = computed<boolean>(() => {
+  return !!(formData.value.exchange_rate && (props.store as Record<string, unknown>).showExchangeRate)
+})
+
+const baseCurrencyGrandTotal = computed<number>(() => {
+  if (!formData.value.exchange_rate) return 0
+  return Math.round(props.store.getTotal * Number(formData.value.exchange_rate))
+})
+
+watch(
+  () => formData.value.items,
+  () => {
+    setDiscount()
+    recalculateGlobalTaxes()
+  },
+  { deep: true },
+)
+
+watch(
+  () => formData.value.tax_included,
+  () => {
+    recalculateGlobalTaxes()
+  },
+)
+
+const totalDiscount = computed<number>({
+  get: () => formData.value.discount,
+  set: (newValue: number) => {
+    formData.value.discount = newValue
+    setDiscount()
+    recalculateGlobalTaxes()
+  },
+})
+
+const taxes = computed<DocumentTax[]>({
+  get: () => formData.value.taxes,
+  set: (value: DocumentTax[]) => {
+    props.store.$patch((state: Record<string, unknown>) => {
+      ;(state[props.storeProp] as DocumentFormData).taxes = value
+    })
+  },
+})
+
+interface AggregatedTax {
+  tax_type_id: number
+  amount: number
+  percent: number | null
+  name: string
+  calculation_type: string | null
+  fixed_amount: number
+  compound_tax: boolean
+}
+
+const itemWiseTaxes = computed<AggregatedTax[]>(() => {
+  const result: AggregatedTax[] = []
+  formData.value.items.forEach((item: DocumentItem) => {
+    if (item.taxes) {
+      item.taxes.forEach((tax: Partial<DocumentTax>) => {
+        const found = result.find((_tax) => _tax.tax_type_id === tax.tax_type_id)
+        if (found) {
+          found.amount += tax.amount ?? 0
+        } else if (tax.tax_type_id) {
+          result.push({
+            tax_type_id: tax.tax_type_id,
+            amount: Math.round(tax.amount ?? 0),
+            percent: tax.percent ?? null,
+            name: tax.name ?? '',
+            calculation_type: tax.calculation_type ?? null,
+            fixed_amount: tax.fixed_amount ?? 0,
+            compound_tax: tax.compound_tax ?? false,
+          })
+        }
+      })
+    }
+  })
+  return result
+})
+
+function setDiscount(): void {
+  const newValue = formData.value.discount
+
+  if (formData.value.discount_type === 'percentage') {
+    formData.value.discount_val = Math.round((props.store.getSubTotal * newValue) / 100)
+    return
+  }
+
+  formData.value.discount_val = Math.round(newValue * 100)
+}
+
+function recalculateGlobalTaxes(): void {
+  if (formData.value.tax_per_item === 'YES') return
+
+  const subtotalWithDiscount = props.store.getSubtotalWithDiscount
+  const taxIncluded = formData.value.tax_included ?? false
+
+  // Pass 1: simple (non-compound) taxes are charged on the discounted subtotal.
+  let simpleTotal = 0
+  formData.value.taxes.forEach((tax: DocumentTax) => {
+    if (tax.compound_tax) return
+    if (tax.calculation_type === 'percentage' && tax.percent) {
+      tax.amount = calcTaxAmount(
+        subtotalWithDiscount,
+        tax.percent,
+        null,
+        'percentage',
+        taxIncluded,
+      )
+    }
+    // Fixed taxes keep their amount as-is, but still count toward the compound base
+    simpleTotal += tax.amount ?? 0
+  })
+
+  // Pass 2: compound taxes are charged on the discounted subtotal plus the simple taxes.
+  formData.value.taxes.forEach((tax: DocumentTax) => {
+    if (!tax.compound_tax) return
+    if (tax.calculation_type === 'percentage' && tax.percent) {
+      tax.amount = calcTaxAmount(
+        subtotalWithDiscount,
+        tax.percent,
+        null,
+        'percentage',
+        taxIncluded,
+        true,
+        simpleTotal,
+      )
+    }
+  })
+}
+
+function selectFixed(): void {
+  if (formData.value.discount_type === 'fixed') return
+  formData.value.discount_val = Math.round(formData.value.discount * 100)
+  formData.value.discount_type = 'fixed'
+}
+
+function selectPercentage(): void {
+  if (formData.value.discount_type === 'percentage') return
+  const val = Math.round(formData.value.discount * 100) / 100
+  formData.value.discount_val = Math.round((props.store.getSubTotal * val) / 100)
+  formData.value.discount_type = 'percentage'
+}
+
+function onSelectTax(selectedTax: TaxType): void {
+  upsertAvailableTaxType(selectedTax)
+
+  const amount = calcTaxAmount(
+    props.store.getSubtotalWithDiscount,
+    selectedTax.percent,
+    selectedTax.fixed_amount,
+    selectedTax.calculation_type,
+    formData.value.tax_included ?? false,
+    selectedTax.compound_tax ?? false,
+    props.store.getTotalSimpleTax,
+  )
+
+  const data: DocumentTax = {
+    id: generateClientId(),
+    name: selectedTax.name,
+    percent: selectedTax.percent,
+    tax_type_id: selectedTax.id,
+    amount,
+    calculation_type: selectedTax.calculation_type,
+    fixed_amount: selectedTax.fixed_amount,
+    compound_tax: selectedTax.compound_tax ?? false,
+  }
+
+  props.store.$patch((state: Record<string, unknown>) => {
+    ;(state[props.storeProp] as DocumentFormData).taxes.push({ ...data })
+  })
+
+  // Adding a simple tax widens the base of any compound tax already present,
+  // so the insertion order must not matter.
+  recalculateGlobalTaxes()
+}
+
+function upsertAvailableTaxType(taxType: TaxType): void {
+  const index = availableTaxTypes.value.findIndex(({ id }) => id === taxType.id)
+
+  if (index === -1) {
+    availableTaxTypes.value.push(taxType)
+    return
+  }
+
+  availableTaxTypes.value.splice(index, 1, taxType)
+}
+
+function updateTax(data: DocumentTax): void {
+  const tax = formData.value.taxes.find((t: DocumentTax) => t.id === data.id)
+  if (tax) {
+    Object.assign(tax, { ...data })
+  }
+}
+
+function removeTax(id: number | string): void {
+  const index = formData.value.taxes.findIndex((tax: DocumentTax) => tax.id === id)
+  props.store.$patch((state: Record<string, unknown>) => {
+    ;(state[props.storeProp] as DocumentFormData).taxes.splice(index, 1)
+  })
+
+  // Removing a simple tax shrinks the base of any remaining compound tax.
+  recalculateGlobalTaxes()
+}
+</script>

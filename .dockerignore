@@ -1,13 +1,21 @@
 .idea/
+.claude/
 .git/
 
 .github/
 docker/
 !docker/production/entrypoint.d
 !docker/production/inject.sh
+!docker/production/s6-overlay
 
 node_modules/
 public/storage
+
+# The thin-client build target and its Capacitor shell never ship in the image
+mobile/
+
+# Vite output is rebuilt in the image's static_builder stage; never ship a stale host build
+public/build/
 
 database/*.sqlite
 storage/app/*
@@ -38,9 +46,10 @@ Dockerfile
 LICENSE
 Makefile
 SECURITY.md
-_ide_helper.php
+.phpstorm.meta.php
+_ide_helper*.php
 crowdin.yml
-invoiceshelf.code-workspace
+*.code-workspace
 package-lock.json
 phpunit.xml
 readme.md

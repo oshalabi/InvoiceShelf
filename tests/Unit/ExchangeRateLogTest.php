@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\ExchangeRateLog;
-use App\Models\Expense;
+use App\Domains\Money\Models\ExchangeRateLog;
+use App\Domains\Purchases\Models\Expense;
 
 beforeEach(function () {
     Artisan::call('db:seed', ['--class' => 'DatabaseSeeder', '--force' => true]);

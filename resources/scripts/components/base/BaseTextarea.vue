@@ -7,10 +7,13 @@
     />
   </BaseContentPlaceholders>
 
+  <!-- Labelled by the surrounding group through fieldAttrs, or by aria-label -->
+  <!-- eslint-disable-next-line vuejs-accessibility/form-control-has-label -->
   <textarea
     v-else
-    v-bind="$attrs"
+    v-bind="{ ...fieldAttrs, ...$attrs }"
     ref="textarea"
+    :dir="($attrs.dir as string | undefined) ?? 'auto'"
     :value="modelValue"
     :class="[defaultInputClass, inputBorderClass]"
     :disabled="disabled"
@@ -18,58 +21,48 @@
   />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useFormField } from '@/scripts/composables/use-form-field'
 
-const props = defineProps({
-  contentLoading: {
-    type: Boolean,
-    default: false,
-  },
-  row: {
-    type: Number,
-    default: null,
-  },
-  invalid: {
-    type: Boolean,
-    default: false,
-  },
-  disabled: {
-    type: Boolean,
-    default: false,
-  },
-  modelValue: {
-    type: [String, Number],
-    default: '',
-  },
-  defaultInputClass: {
-    type: String,
-    default:
-      'box-border w-full px-3 py-2 text-sm not-italic font-normal leading-snug text-left text-black placeholder-gray-400 bg-white border border-gray-200 border-solid rounded outline-none',
-  },
-  autosize: {
-    type: Boolean,
-    default: false,
-  },
-  borderless: {
-    type: Boolean,
-    default: false,
-  },
+interface Props {
+  contentLoading?: boolean
+  row?: number | null
+  invalid?: boolean
+  disabled?: boolean
+  modelValue?: string | number
+  defaultInputClass?: string
+  autosize?: boolean
+  borderless?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  contentLoading: false,
+  row: null,
+  invalid: false,
+  disabled: false,
+  modelValue: '',
+  defaultInputClass:
+    'box-border w-full px-3 py-2 text-base md:text-sm font-normal leading-6 text-start text-heading placeholder-subtle bg-surface border border-solid field-border rounded-lg outline-hidden',
+  autosize: false,
+  borderless: false,
 })
 
-const textarea = ref(null)
+const textarea = ref<HTMLTextAreaElement | null>(null)
 
-const inputBorderClass = computed(() => {
+const { attrs: fieldAttrs } = useFormField({ invalid: () => props.invalid })
+
+const inputBorderClass = computed<string>(() => {
   if (props.invalid && !props.borderless) {
-    return 'border-red-400 ring-red-400 focus:ring-red-400 focus:border-red-400'
+    return 'border-danger focus:border-danger focus:ring-danger/20'
   } else if (!props.borderless) {
-    return 'focus:ring-primary-400 focus:border-primary-400'
+    return ''
   }
 
-  return 'border-none outline-none focus:ring-primary-400 focus:border focus:border-primary-400'
+  return 'border-none outline-hidden focus:border'
 })
 
-const loadingPlaceholderSize = computed(() => {
+const loadingPlaceholderSize = computed<string>(() => {
   switch (props.row) {
     case 2:
       return '56'
@@ -80,25 +73,26 @@ const loadingPlaceholderSize = computed(() => {
   }
 })
 
-const emit = defineEmits(['update:modelValue'])
+interface Emits {
+  (e: 'update:modelValue', value: string): void
+}
 
-function onInput(e) {
-  emit('update:modelValue', e.target.value)
+const emit = defineEmits<Emits>()
+
+function onInput(e: Event): void {
+  const target = e.target as HTMLTextAreaElement
+  emit('update:modelValue', target.value)
 
   if (props.autosize) {
-    e.target.style.height = 'auto'
-    e.target.style.height = `${e.target.scrollHeight}px`
+    target.style.height = 'auto'
+    target.style.height = `${target.scrollHeight}px`
   }
 }
 
 onMounted(() => {
   if (textarea.value && props.autosize) {
     textarea.value.style.height = textarea.value.scrollHeight + 'px'
-
-    if (textarea.value.style.overflow && textarea.value.style.overflow.y) {
-      textarea.value.style.overflow.y = 'hidden'
-    }
-
+    textarea.value.style.overflowY = 'hidden'
     textarea.value.style.resize = 'none'
   }
 })

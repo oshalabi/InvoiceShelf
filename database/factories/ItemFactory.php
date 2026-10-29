@@ -2,10 +2,10 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\Item;
-use App\Models\Unit;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Catalog\Models\Unit;
+use App\Domains\Money\Models\Currency;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ItemFactory extends Factory

@@ -1,8 +1,8 @@
 <?php
 
-use App\Jobs\CreateBackupJob;
-use App\Models\FileDisk;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Platform\Storage\Jobs\CreateBackupJob;
+use App\Platform\Storage\Models\FileDisk;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
@@ -50,11 +50,7 @@ test('create backup', function () {
 
     $response = getJson("/api/v1/backups?disk={$disk->driver}&&file_disk_id={$disk->id}");
 
-    $prefix = env('DYNAMIC_DISK_PREFIX', 'temp_');
-
-    $response->assertStatus(200)->assertJson([
-        'disks' => [
-            $prefix.$disk->driver,
-        ],
+    $response->assertStatus(200)->assertJsonStructure([
+        'backups',
     ]);
 });

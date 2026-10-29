@@ -2,12 +2,12 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\Customer;
-use App\Models\Payment;
-use App\Models\PaymentMethod;
-use App\Models\User;
-use App\Services\SerialNumberFormatter;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Contacts\Models\Customer;
+use App\Domains\Money\Models\Currency;
+use App\Domains\Receivables\Models\Payment;
+use App\Domains\Receivables\Models\PaymentMethod;
+use App\Domains\Sales\Application\SerialNumberService;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class PaymentFactory extends Factory
@@ -24,7 +24,7 @@ class PaymentFactory extends Factory
      */
     public function definition(): array
     {
-        $sequenceNumber = (new SerialNumberFormatter)
+        $sequenceNumber = (new SerialNumberService)
             ->setModel(new Payment)
             ->setCompany(User::find(1)->companies()->first()->id)
             ->setNextNumbers();

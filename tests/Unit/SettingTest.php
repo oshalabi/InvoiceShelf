@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Setting;
+use App\Platform\Operations\Models\Setting;
 use Illuminate\Support\Facades\Artisan;
 
 use function Pest\Faker\fake;

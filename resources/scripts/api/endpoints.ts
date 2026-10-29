@@ -1,0 +1,197 @@
+export const API = {
+  // Authentication & Password Reset
+  LOGIN: '/login',
+  LOGOUT: '/auth/logout',
+  FORGOT_PASSWORD: '/api/v1/auth/password/email',
+  RESET_PASSWORD: '/api/v1/auth/reset/password',
+  AUTH_CHECK: '/api/v1/auth/check',
+  AUTH_TOKENS: '/api/v1/auth/tokens', // the caller's own devices: list, and revoke one by id
+  CSRF_COOKIE: '/sanctum/csrf-cookie',
+  // Bearer sign-in, used by the mobile client instead of the session pair
+  // above. Both already end in `/login` and `/auth/logout`, so the 401
+  // interceptor's exempt list covers them without a second entry.
+  TOKEN_LOGIN: '/api/v1/auth/login',
+  TOKEN_LOGOUT: '/api/v1/auth/logout',
+  REGISTER_WITH_INVITATION: '/api/v1/auth/register-with-invitation',
+  INSTALLATION_LOGIN: '/api/v1/installation/login',
+  INSTALLATION_SET_DOMAIN: '/api/v1/installation/set-domain',
+  INSTALLATION_WIZARD_STEP: '/api/v1/installation/wizard-step',
+  INSTALLATION_SESSION_LOGIN: '/installation/session-login',
+
+  // Invitation Registration (public)
+  INVITATION_DETAILS: '/api/v1/invitations', // append /{token}/details
+
+  // Invitations (user-scoped)
+  INVITATIONS_PENDING: '/api/v1/invitations/pending',
+  INVITATIONS: '/api/v1/invitations', // append /{token}/accept or /{token}/decline
+
+  // Bootstrap & General
+  BOOTSTRAP: '/api/v1/bootstrap',
+  CONFIG: '/api/v1/config',
+  CURRENT_COMPANY: '/api/v1/current-company',
+  SEARCH: '/api/v1/search',
+  SEARCH_USERS: '/api/v1/search/user',
+  APP_VERSION: '/api/v1/app/version',
+  COUNTRIES: '/api/v1/countries',
+
+  // Dashboard
+  DASHBOARD: '/api/v1/dashboard',
+
+  // Customers
+  CUSTOMERS: '/api/v1/customers',
+  CUSTOMERS_DELETE: '/api/v1/customers/delete',
+  CUSTOMER_STATS: '/api/v1/customers', // append /{id}/stats
+  CUSTOMER_STATEMENT: '/api/v1/customers', // append /{id}/statement
+
+  // Items & Units
+  ITEMS: '/api/v1/items',
+  ITEMS_DELETE: '/api/v1/items/delete',
+  UNITS: '/api/v1/units',
+
+  // Invoices
+  INVOICES: '/api/v1/invoices',
+  INVOICES_DELETE: '/api/v1/invoices/delete',
+  INVOICE_TEMPLATES: '/api/v1/invoices/templates',
+
+  // Recurring Invoices
+  RECURRING_INVOICES: '/api/v1/recurring-invoices',
+  PAYMENT_REMINDERS: '/api/v1/company/payment-reminders', // the company's reminder schedule and email
+  RECURRING_INVOICES_DELETE: '/api/v1/recurring-invoices/delete',
+  RECURRING_INVOICE_FREQUENCY: '/api/v1/recurring-invoice-frequency',
+
+  // Estimates
+  ESTIMATES: '/api/v1/estimates',
+  ESTIMATES_DELETE: '/api/v1/estimates/delete',
+  ESTIMATE_TEMPLATES: '/api/v1/estimates/templates',
+
+  // Expenses
+  EXPENSES: '/api/v1/expenses',
+  EXPENSES_DELETE: '/api/v1/expenses/delete',
+
+  // Expense Categories
+  CATEGORIES: '/api/v1/categories',
+
+  // Payments
+  PAYMENTS: '/api/v1/payments',
+  PAYMENTS_DELETE: '/api/v1/payments/delete',
+  PAYMENT_METHODS: '/api/v1/payment-methods',
+
+  // Custom Fields
+  CUSTOM_FIELDS: '/api/v1/custom-fields',
+
+  // Notes
+  NOTES: '/api/v1/notes',
+
+  // Tax Types
+  TAX_TYPES: '/api/v1/tax-types',
+
+  // Roles & Abilities
+  ROLES: '/api/v1/roles',
+  ABILITIES: '/api/v1/abilities',
+
+  // Company
+  COMPANY: '/api/v1/company',
+  COMPANY_UPLOAD_LOGO: '/api/v1/company/upload-logo',
+  COMPANY_SETTINGS: '/api/v1/company/settings',
+  COMPANY_HAS_TRANSACTIONS: '/api/v1/company/has-transactions',
+  COMPANIES: '/api/v1/companies',
+  COMPANIES_DELETE: '/api/v1/companies/delete',
+  TRANSFER_OWNERSHIP: '/api/v1/transfer/ownership', // append /{userId}
+
+  // Company Invitations (company-scoped)
+  COMPANY_INVITATIONS: '/api/v1/company-invitations',
+
+  // Members
+  MEMBERS: '/api/v1/members',
+  MEMBERS_DELETE: '/api/v1/members/delete',
+
+  // User Profile & Settings
+  ME: '/api/v1/me',
+  ME_SETTINGS: '/api/v1/me/settings',
+  ME_UPLOAD_AVATAR: '/api/v1/me/upload-avatar',
+
+  // Global Settings (admin)
+  SETTINGS: '/api/v1/settings',
+
+  // Mail Configuration (global)
+  MAIL_DRIVERS: '/api/v1/mail/drivers',
+  COMPANY_MAIL_DRIVERS: '/api/v1/company/mail/drivers',
+  MAIL_CONFIG: '/api/v1/mail/config',
+  MAIL_TEST: '/api/v1/mail/test',
+
+  // Company Mail Configuration
+  COMPANY_MAIL_DEFAULT_CONFIG: '/api/v1/company/mail/config',
+  COMPANY_MAIL_CONFIG: '/api/v1/company/mail/company-config',
+  COMPANY_MAIL_TEST: '/api/v1/company/mail/company-test',
+
+  // PDF Configuration
+  PDF_DRIVERS: '/api/v1/pdf/drivers',
+  PDF_CONFIG: '/api/v1/pdf/config',
+
+  // Disks & Backups
+  DISKS: '/api/v1/disks',
+  DISK_DRIVERS: '/api/v1/disk/drivers',
+  DISK_PURPOSES: '/api/v1/disk/purposes',
+  BACKUPS: '/api/v1/backups',
+  DOWNLOAD_BACKUP: '/api/v1/download-backup',
+
+  // Fonts
+  FONTS_STATUS: '/api/v1/fonts/status',
+  FONTS_INSTALL: '/api/v1/fonts',
+
+  // Exchange Rates & Currencies
+  CURRENCIES: '/api/v1/currencies',
+  ADMIN_CURRENCIES: '/api/v1/super-admin/currencies',
+  ADMIN_CURRENCIES_REFRESH: '/api/v1/super-admin/currencies/refresh',
+  CURRENCIES_USED: '/api/v1/currencies/used',
+  CURRENCIES_BULK_UPDATE: '/api/v1/currencies/bulk-update-exchange-rate',
+  EXCHANGE_RATE_PROVIDERS: '/api/v1/exchange-rate-providers',
+  USED_CURRENCIES: '/api/v1/used-currencies',
+  SUPPORTED_CURRENCIES: '/api/v1/supported-currencies',
+
+  // Serial Numbers
+  NEXT_NUMBER: '/api/v1/next-number',
+  NUMBER_PLACEHOLDERS: '/api/v1/number-placeholders',
+
+  // Formats
+  TIMEZONES: '/api/v1/timezones',
+  DATE_FORMATS: '/api/v1/date/formats',
+  TIME_FORMATS: '/api/v1/time/formats',
+
+  // Modules
+  MODULES: '/api/v1/modules',
+  MODULES_INSTALL: '/api/v1/modules/install',
+  MODULES_UNINSTALL: '/api/v1/modules',
+  MODULES_PAIRING: '/api/v1/modules/pairing',
+
+  // Self Update
+  CHECK_UPDATE: '/api/v1/check/update',
+  UPDATE_DOWNLOAD: '/api/v1/update/download',
+  UPDATE_UNZIP: '/api/v1/update/unzip',
+  UPDATE_COPY: '/api/v1/update/copy',
+  UPDATE_DELETE: '/api/v1/update/delete',
+  UPDATE_CLEAN: '/api/v1/update/clean',
+  UPDATE_MIGRATE: '/api/v1/update/migrate',
+  UPDATE_FINISH: '/api/v1/update/finish',
+
+  // Super Admin
+  SUPER_ADMIN_DASHBOARD: '/api/v1/super-admin/dashboard',
+  SUPER_ADMIN_COMPANIES: '/api/v1/super-admin/companies',
+  SUPER_ADMIN_USERS: '/api/v1/super-admin/users',
+  SUPER_ADMIN_STOP_IMPERSONATING: '/api/v1/super-admin/stop-impersonating',
+  SUPER_ADMIN_MCP: '/api/v1/super-admin/mcp', // the MCP server switch, its keys and redirect domains
+  SUPER_ADMIN_MCP_KEYS: '/api/v1/super-admin/mcp/keys',
+  SUPER_ADMIN_ROLE_PRESETS: '/api/v1/super-admin/role-presets', // roles every company gets
+  SUPER_ADMIN_ABILITIES: '/api/v1/super-admin/abilities', // the ability catalogue, without a company
+  SUPER_ADMIN_ANNOUNCEMENTS: '/api/v1/super-admin/announcements', // announcements for the whole install
+
+  // MCP: where AI apps connect, and the caller's own connected apps
+  MCP_SERVER: '/api/v1/mcp/server',
+  MCP_CONNECTIONS: '/api/v1/mcp/connections',
+
+  // The bell: the caller's own notices, and where each kind reaches them
+  NOTIFICATIONS: '/api/v1/notifications',
+  NOTIFICATION_PREFERENCES: '/api/v1/me/notification-preferences',
+  ANNOUNCEMENTS: '/api/v1/announcements', // dismiss one for the caller
+  COMPANY_NOTIFICATION_DEFAULTS: '/api/v1/company/notification-defaults', // the owner's, for everyone
+} as const

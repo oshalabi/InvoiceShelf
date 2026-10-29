@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Address;
+use App\Domains\Contacts\Models\Address;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

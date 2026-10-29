@@ -1,0 +1,93 @@
+export interface ModuleVersion {
+  module_version: string
+  invoiceshelf_version: string | null
+  created_at: string
+}
+
+export interface ModuleLink {
+  icon: string
+  label: string
+  link: string
+}
+
+export interface ModuleReview {
+  id: number
+  rating: number
+  comment: string
+  user: string
+  created_at: string
+}
+
+export interface ModuleScreenshot {
+  url: string
+  title: string | null
+}
+
+export interface ModuleFaq {
+  question: string
+  answer: string
+}
+
+export interface Module {
+  id: number
+  average_rating: number | null
+  cover: string | null
+  slug: string
+  module_name: string
+  access_tier: 'public' | 'premium'
+  access: 'free' | 'paid'
+  entitlement?: {
+    active?: boolean
+    status?: string
+    expires_at?: string | null
+  } | null
+  compatibility?: {
+    invoiceshelf?: string | null
+    module_api?: string | number | null
+    php?: string | null
+    extensions?: string[]
+    compatible?: boolean
+  } | null
+  release_state?: 'published' | 'yanked' | string
+  yanked_reason?: string | null
+  channel?: 'stable' | 'insider'
+  faq: ModuleFaq[] | null
+  highlights: string[] | null
+  installed_module_version: string | null
+  installed_module_version_updated_at: string | null
+  latest_module_version: string | null
+  latest_module_version_updated_at: string | null
+  latest_min_invoiceshelf_version: string | null
+  latest_module_checksum_sha256: string | null
+  is_dev: boolean
+  license: string | null
+  long_description: string | null
+  monthly_price: number | null
+  name: string
+  purchased: boolean
+  purchase_url: string | null
+  reviews: ModuleReview[]
+  screenshots: ModuleScreenshot[] | null
+  short_description: string | null
+  type: string | null
+  yearly_price: number | null
+  author_name: string
+  author_avatar: string
+  installed: boolean
+  enabled: boolean
+  supports_data_cleanup: boolean
+  update_available: boolean
+  video_link: string | null
+  video_thumbnail: string | null
+  links: ModuleLink[] | null
+}
+
+export interface InstalledModule {
+  id: number
+  name: string
+  version: string
+  installed: boolean
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}

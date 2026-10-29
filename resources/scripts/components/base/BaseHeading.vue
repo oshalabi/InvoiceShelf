@@ -1,25 +1,25 @@
-<template>
-  <h6 :class="typeClass">
-    <slot />
-  </h6>
-</template>
-
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-const props = defineProps({
-  type: {
-    type: String,
-    default: 'section-title',
-    validator: function (value) {
-      return ['section-title', 'heading-title'].indexOf(value) !== -1
-    },
-  },
+
+interface Props {
+  type?: 'section-title' | 'heading-title'
+  /** The heading's place in the page outline; the look comes from `type` */
+  level?: 1 | 2 | 3 | 4 | 5 | 6
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  type: 'section-title',
+  level: 2,
 })
 
-const typeClass = computed(() => {
-  return {
-    'text-gray-900 text-lg font-medium': props.type === 'heading-title',
-    'text-gray-500 uppercase text-base': props.type === 'section-title',
-  }
-})
+const typeClass = computed<Record<string, boolean>>(() => ({
+  'text-heading text-lg font-medium': props.type === 'heading-title',
+  'text-heading text-section font-semibold': props.type === 'section-title',
+}))
 </script>
+
+<template>
+  <component :is="`h${level}`" :class="typeClass">
+    <slot />
+  </component>
+</template>

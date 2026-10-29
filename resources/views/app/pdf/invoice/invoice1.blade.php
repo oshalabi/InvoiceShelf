@@ -2,6 +2,7 @@
 <html>
 
 <head>
+<<<<<<< HEAD
     <title>@lang('pdf_invoice_label') - {{ $invoice->invoice_number }}</title>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 
@@ -16,6 +17,18 @@
                                                                                 padding: 0px;
                                                                                             margin-top: 50px;
                                                                                                     }
+=======
+    <title>@lang($invoice->isCreditNote() ? 'pdf_credit_note_label' : 'pdf_invoice_label') - {{ $invoice->invoice_number }}</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+@include("app.pdf.partials.fonts")
+
+    <style type="text/css">
+        /* -- Base -- */
+        body {
+            margin: 0px;
+        }
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
 
                                                                                                             .text-center {
                                                                                                                         text-align: center;
@@ -29,6 +42,7 @@
 
                                                                                                                                                                                             /* -- Header -- */
 
+<<<<<<< HEAD
                                                                                                                                                                                                     .header-bottom-divider {
                                                                                                                                                                                                                 color: rgba(0, 0, 0, 0.2);
                                                                                                                                                                                                                             top: 90px;
@@ -44,6 +58,25 @@
                                                                                                                                                                                                                                                                                                                                 left: 0px;
                                                                                                                                                                                                                                                                                                                                             top: -50px;
                                                                                                                                                                                                                                                                                                                                                     }
+=======
+        .header-bottom-divider {
+            color: rgba(0, 0, 0, 0.2);
+            position: absolute;
+            top: 90px;
+            left: 0px;
+            width: 100%;
+            margin-left: 0%;
+        }
+
+        .header-container {
+            position: relative;
+            width: 100%;
+            height: 90px;
+            left: 0px;
+            top: 0px;
+            margin-bottom: -40px;
+        }
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
 
                                                                                                                                                                                                                                                                                                                                                             .header-logo {
                                                                                                                                                                                                                                                                                                                                                                         margin-top: 20px;
@@ -159,12 +192,35 @@
 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     /* -- Items Table -- */
 
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             .items-table {
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         margin-top: 35px;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     padding: 0px 30px 10px 30px;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 page-break-before: avoid;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             page-break-after: auto;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     }
+=======
+        /* The items table sets border-collapse: collapse, and padding does not
+           apply to a table in that mode. dompdf applies it anyway, Chromium
+           follows the spec and drops it, which put the two renderers 22.5pt
+           apart on each side. All of the table's spacing lives on this wrapper
+           instead -- a plain block, honoured identically by both. Padding rather
+           than margin so nothing collapses through it either. */
+        .items-table-wrapper {
+            padding-top: 35px;
+            padding-bottom: 10px;
+        }
+
+        .items-table-inset {
+            padding-left: 30px;
+            padding-right: 30px;
+        }
+
+        .items-table {
+            page-break-before: avoid;
+            page-break-after: auto;
+        }
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             .items-table hr {
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         height: 0.1px;
@@ -327,7 +383,25 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     padding-left: 0;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             }
 
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </style>
+=======
+        /* The address formats emit <h3>{NAME}</h3> ahead of the <br>-joined
+           lines. Left to the user-agent default its margins differ between
+           dompdf and Chromium -- the construct where the two renderers drift
+           apart vertically -- and the extra top margin also pushes the company
+           column out of line with the Bill to / Ship to columns beside it.
+           Pinning both margins fixes the alignment and removes the divergence. */
+        .company-address h3,
+        .customer-address-container h3,
+        .billing-address h3,
+        .shipping-address h3 {
+            margin-top: 0;
+            margin-bottom: 6px;
+        }
+
+    </style>
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </head>
 
@@ -337,7 +411,7 @@
             <tr>
                 <td class="text-center">
                     @if ($logo)
-                        <img class="header-logo" style="height:50px" src="{{ \App\Space\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
+                        <img class="header-logo" style="height:50px" src="{{ \App\Platform\Pdf\Rendering\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
                     @else
                         @if ($invoice->customer->company)
                             <h2 class="header-logo"> {{ $invoice->customer->company->name }}</h2>
@@ -352,6 +426,8 @@
 
     <div class="content-wrapper">
         <div style="padding-top: 30px">
+            @include('app.pdf.partials.credit-note-banner')
+
             <div class="company-address-container company-address">
                 {!! $company_address !!}
             </div>
@@ -359,17 +435,20 @@
             <div class="invoice-details-container">
                 <table>
                     <tr>
-                        <td class="attribute-label">@lang('pdf_invoice_number')</td>
+                        <td class="attribute-label">@lang($invoice->isCreditNote() ? 'pdf_credit_note_number' : 'pdf_invoice_number')</td>
                         <td class="attribute-value"> &nbsp;{{ $invoice->invoice_number }}</td>
                     </tr>
                     <tr>
-                        <td class="attribute-label">@lang('pdf_invoice_date')</td>
+                        <td class="attribute-label">@lang($invoice->isCreditNote() ? 'pdf_credit_note_date' : 'pdf_invoice_date')</td>
                         <td class="attribute-value"> &nbsp;{{ $invoice->formattedInvoiceDate }}</td>
                     </tr>
-                    <tr>
-                        <td class="attribute-label">@lang('pdf_invoice_due_date')</td>
-                        <td class="attribute-value"> &nbsp;{{ $invoice->formattedDueDate }}</td>
-                    </tr>
+                    @unless ($invoice->isCreditNote())
+                        <tr>
+                            <td class="attribute-label">@lang('pdf_invoice_due_date')</td>
+                            <td class="attribute-value"> &nbsp;{{ $invoice->formattedDueDate }}</td>
+                        </tr>
+                    @endunless
+                    @include('app.pdf.partials.document-custom-fields', ['document' => $invoice])
                 </table>
             </div>
 
@@ -392,7 +471,7 @@
             @endif
         </div>
 
-        <div style="position: relative; clear: both;">
+        <div class="items-table-wrapper" style="position: relative; clear: both;">
             @include('app.pdf.invoice.partials.table')
         </div>
 

@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Models\ExchangeRateProvider;
+use App\Domains\Money\Models\ExchangeRateProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ExchangeRateProviderFactory extends Factory

@@ -10,6 +10,7 @@
   <div v-else :class="computedContainerClass" class="relative flex flex-row">
     <svg
       v-if="clockIcon && !hasIconSlot"
+      aria-hidden="true"
       xmlns="http://www.w3.org/2000/svg"
       class="
         absolute
@@ -21,7 +22,7 @@
         text-sm
         not-italic
         font-black
-        text-gray-400
+        text-subtle
         cursor-pointer
       "
       viewBox="0 0 20 20"
@@ -40,7 +41,7 @@
     <FlatPickr
       ref="dpt"
       v-model="time"
-      v-bind="$attrs"
+      v-bind="{ ...fieldAttrs, ...$attrs }"
       :disabled="disabled"
       :config="config"
       :class="[defaultInputClass, inputInvalidClass, inputDisabledClass]"
@@ -48,89 +49,95 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import FlatPickr from 'vue-flatpickr-component'
 import 'flatpickr/dist/flatpickr.css'
 import { computed, reactive, useSlots, ref } from 'vue'
-const dpt = ref(null)
+import { useFormField } from '@/scripts/composables/use-form-field'
 
-const props = defineProps({
-  modelValue: {
-    type: [String, Date],
-    default: () => moment(new Date()),
-  },
-  contentLoading: {
-    type: Boolean,
-    default: false,
-  },
-  placeholder: {
-    type: String,
-    default: null,
-  },
-  invalid: {
-    type: Boolean,
-    default: false,
-  },
-  disabled: {
-    type: Boolean,
-    default: false,
-  },
-  containerClass: {
-    type: String,
-    default: '',
-  },
-  clockIcon: {
-    type: Boolean,
-    default: true,
-  },
-  defaultInputClass: {
-    type: String,
-    default:
-      'font-base pl-8 py-2 outline-none focus:ring-primary-400 focus:outline-none focus:border-primary-400 block w-full sm:text-sm border-gray-300 rounded-md text-black',
-  },
+interface FlatPickrInstance {
+  fp: { open: () => void }
+}
+
+const dpt = ref<FlatPickrInstance | null>(null)
+
+interface Props {
+  modelValue?: string | Date
+  contentLoading?: boolean
+  placeholder?: string | null
+  invalid?: boolean
+  disabled?: boolean
+  containerClass?: string
+  clockIcon?: boolean
+  defaultInputClass?: string
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  modelValue: () => new Date(),
+  contentLoading: false,
+  placeholder: null,
+  invalid: false,
+  disabled: false,
+  containerClass: '',
+  clockIcon: true,
+  defaultInputClass:
+    'font-base ps-9 py-2 outline-hidden block w-full md:text-sm tabular field-border rounded-lg text-heading',
 })
 
-const emit = defineEmits(['update:modelValue'])
+const { attrs: fieldAttrs } = useFormField({ invalid: () => props.invalid })
+
+interface Emits {
+  (e: 'update:modelValue', value: string | Date): void
+}
+
+const emit = defineEmits<Emits>()
 
 const slots = useSlots()
 
-let config = reactive({
+interface TimePickerConfig {
+  enableTime: boolean
+  noCalendar: boolean
+  dateFormat: string
+  time_24hr: boolean
+}
+
+const config = reactive<TimePickerConfig>({
   enableTime: true,
   noCalendar: true,
   dateFormat: 'H:i',
   time_24hr: true,
 })
 
-const time = computed({
+const time = computed<string | Date>({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value),
+  set: (value: string | Date) => emit('update:modelValue', value),
 })
 
-const hasIconSlot = computed(() => {
+const hasIconSlot = computed<boolean>(() => {
   return !!slots.icon
 })
 
-function onClickPicker(params) {
-  dpt.value.fp.open()
+function onClickPicker(): void {
+  dpt.value?.fp.open()
 }
 
-const computedContainerClass = computed(() => {
-  let containerClass = `${props.containerClass} `
+const computedContainerClass = computed<string>(() => {
+  const containerClass = `${props.containerClass} `
 
   return containerClass
 })
 
-const inputInvalidClass = computed(() => {
+const inputInvalidClass = computed<string>(() => {
   if (props.invalid) {
-    return 'border-red-400 ring-red-400 focus:ring-red-400 focus:border-red-400'
+    return 'border-danger focus:border-danger focus:ring-danger/20'
   }
 
   return ''
 })
 
-const inputDisabledClass = computed(() => {
+const inputDisabledClass = computed<string>(() => {
   if (props.disabled) {
-    return 'border border-solid rounded-md outline-none input-field box-border-2 base-date-picker-input placeholder-gray-400 bg-gray-300 text-gray-600 border-gray-300'
+    return 'border border-solid rounded-lg outline-hidden placeholder-subtle bg-surface-secondary text-muted border-line-light cursor-not-allowed'
   }
 
   return ''

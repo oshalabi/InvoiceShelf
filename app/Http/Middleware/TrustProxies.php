@@ -2,34 +2,41 @@
 
 namespace App\Http\Middleware;
 
-use Illuminate\Http\Middleware\TrustProxies as Middleware;
+use Illuminate\Http\Middleware\TrustProxies as FrameworkTrustProxies;
 use Illuminate\Http\Request;
 
-class TrustProxies extends Middleware
+/**
+ * Teaches the request object which upstream proxies may rewrite the client's
+ * address, host, port and scheme.
+ */
+class TrustProxies extends FrameworkTrustProxies
 {
     /**
-     * The trusted proxies for this application.
+     * Proxies the application accepts forwarded headers from, resolved lazily
+     * by {@see self::proxies()}.
      *
      * @var array
      */
     protected $proxies;
 
     /**
-     * The current proxy header mappings.
+     * Bitmask of the forwarding headers that are honoured.
      *
      * @var array
      */
-    protected $headers =
-        Request::HEADER_X_FORWARDED_FOR |
-        Request::HEADER_X_FORWARDED_HOST |
-        Request::HEADER_X_FORWARDED_PORT |
-        Request::HEADER_X_FORWARDED_PROTO |
-        Request::HEADER_X_FORWARDED_AWS_ELB;
+    protected $headers = Request::HEADER_X_FORWARDED_FOR
+        | Request::HEADER_X_FORWARDED_HOST
+        | Request::HEADER_X_FORWARDED_PORT
+        | Request::HEADER_X_FORWARDED_PROTO
+        | Request::HEADER_X_FORWARDED_AWS_ELB;
 
     /**
-     * Get the trusted proxies.
+     * Resolve the trusted proxy list.
      *
-     * @return array|string|null
+     * Defaults to trusting every hop, which suits the containerised installs
+     * that sit behind an operator-controlled reverse proxy.
+     *
+     * @return string|array|null
      */
     protected function proxies()
     {

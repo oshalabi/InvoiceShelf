@@ -2,10 +2,10 @@
 
 namespace Database\Factories;
 
-use App\Models\Estimate;
-use App\Models\EstimateItem;
-use App\Models\Item;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\EstimateItem;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class EstimateItemFactory extends Factory

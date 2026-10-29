@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\ExpenseCategory;
+use App\Domains\Purchases\Models\ExpenseCategory;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

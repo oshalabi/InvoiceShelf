@@ -1,0 +1,503 @@
+<template>
+  <BasePage class="relative invoice-create-page">
+    <form @submit.prevent="submitForm">
+      <BasePageHeader :help="$t(isRecurring ? 'page_help.recurring_invoices' : 'page_help.invoices')" :title="pageTitle">
+        <BaseBreadcrumb>
+          <BaseBreadcrumbItem :title="$t('general.home')" to="/admin/dashboard" />
+          <BaseBreadcrumbItem :title="$t('invoices.invoice', 2)" to="/admin/invoices" />
+          <BaseBreadcrumbItem
+            v-if="isEdit"
+            :title="$t('invoices.edit_invoice')"
+            to="#"
+            active
+          />
+          <BaseBreadcrumbItem v-else :title="$t('invoices.new_invoice')" to="#" active />
+        </BaseBreadcrumb>
+
+        <!-- Phones get these in the bottom bar and the form instead -->
+        <template v-if="!isPhone" #actions>
+          <!-- Make Recurring Toggle -->
+          <div v-if="!isEdit" class="flex items-center me-4">
+            <BaseSwitch v-model="isRecurring" class="me-2" aria-labelledby="make-recurring-label" />
+            <span id="make-recurring-label" class="text-sm font-medium text-heading whitespace-nowrap">{{ $t('recurring_invoices.make_recurring') }}</span>
+          </div>
+
+          <ExtensionSlot name="entity" entity="invoice" area="actions:form" :context="extensionFormContext" />
+
+          <router-link
+            v-if="isEdit"
+            :to="`/invoices/pdf/${invoiceStore.newInvoice.unique_hash}`"
+            target="_blank"
+            class="inline-flex rounded-lg me-3"
+          >
+            <BaseButton tag="span" variant="primary-outline">
+              <span class="flex">
+                {{ $t('general.view_pdf') }}
+              </span>
+            </BaseButton>
+          </router-link>
+
+          <BaseButton
+            :loading="isSaving"
+            :disabled="isSaving"
+            variant="primary"
+            type="submit"
+          >
+            <template #left="slotProps">
+              <BaseIcon
+                v-if="!isSaving"
+                name="ArrowDownOnSquareIcon"
+                :class="slotProps.class"
+              />
+            </template>
+            {{ isRecurring ? $t('recurring_invoices.save_invoice') : $t('invoices.save_invoice') }}
+          </BaseButton>
+        </template>
+      </BasePageHeader>
+
+      <DocumentFormActionBar
+        :total="invoiceStore.getTotal"
+        :currency="invoiceStore.newInvoice.selectedCurrency"
+        :save-label="isRecurring ? $t('recurring_invoices.save_invoice') : $t('invoices.save_invoice')"
+        :saving="isSaving"
+        :loading="isLoadingContent"
+        :pdf-url="isEdit ? `/invoices/pdf/${invoiceStore.newInvoice.unique_hash}` : null"
+      />
+
+      <!-- On phones, making it recurring is a setting of the document -->
+      <label
+        v-if="isPhone && !isEdit"
+        class="flex items-center justify-between gap-4 px-4 py-3 mt-5 border cursor-pointer glass rounded-xl"
+      >
+        <span id="make-recurring-sheet-label" class="text-sm font-medium text-heading">
+          {{ $t('recurring_invoices.make_recurring') }}
+        </span>
+        <BaseSwitch v-model="isRecurring" aria-labelledby="make-recurring-sheet-label" />
+      </label>
+
+      <!-- Phones have no header actions, so module form actions get a row of their own, only when there are any -->
+      <div v-if="isPhone && formActions.length" class="flex flex-wrap items-center gap-2 px-4 py-3 mt-3 border glass rounded-xl">
+        <ExtensionSlot name="entity" entity="invoice" area="actions:form" :context="extensionFormContext" />
+      </div>
+
+      <!-- Select Customer & Basic Fields -->
+      <InvoiceBasicFields
+        :v="v$"
+        :is-loading="isLoadingContent"
+        :is-edit="isEdit"
+        :is-recurring="isRecurring"
+      />
+
+      <BaseScrollPane>
+        <!-- Invoice Items -->
+        <DocumentItemsTable
+          :currency="invoiceStore.newInvoice.selectedCurrency"
+          :is-loading="isLoadingContent"
+          :item-validation-scope="invoiceValidationScope"
+          :tax-included-setting="companyStore.selectedCompanySettings.tax_included"
+          :store="invoiceStore"
+          store-prop="newInvoice"
+        />
+
+        <ExtensionSlot name="entity" entity="invoice" area="formSections" :context="extensionFormContext" />
+
+        <!-- Invoice Footer Section -->
+        <div
+          class="block mt-10 invoice-foot lg:flex lg:justify-between lg:items-start"
+        >
+          <div class="relative w-full lg:w-1/2 lg:me-4">
+            <!-- Invoice Custom Notes -->
+            <DocumentNotes
+              :store="invoiceStore"
+              store-prop="newInvoice"
+              :fields="invoiceNoteFieldList"
+              type="Invoice"
+            />
+
+            <!-- Invoice Template Button -->
+            <TemplateSelectButton
+              :store="invoiceStore"
+              store-prop="newInvoice"
+              :is-mark-as-default="isMarkAsDefault"
+            />
+            <SelectTemplateModal />
+          </div>
+
+          <DocumentTotals
+            :currency="invoiceStore.newInvoice.selectedCurrency"
+            :is-loading="isLoadingContent"
+            :store="invoiceStore"
+            store-prop="newInvoice"
+            tax-popup-type="invoice"
+          />
+        </div>
+      </BaseScrollPane>
+    </form>
+  </BasePage>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import cloneDeep from 'lodash/cloneDeep'
+import { parseISO, isValid, addDays, format, differenceInCalendarDays } from 'date-fns'
+import {
+  required,
+  maxLength,
+  helpers,
+  requiredIf,
+  decimal,
+} from '@vuelidate/validators'
+import useVuelidate from '@vuelidate/core'
+import { useInvoiceStore } from '../store'
+import { useRecurringInvoiceStore } from '@/scripts/features/company/recurring-invoices/store'
+import { useCompanyStore } from '@/scripts/stores/company.store'
+import { useNotificationStore } from '@/scripts/stores/notification.store'
+import { useBreakpoints } from '@/scripts/composables/use-breakpoints'
+import {
+  handleApiError,
+  getErrorTranslationKey,
+} from '@/scripts/utils/error-handling'
+import ExtensionSlot from '@/scripts/extensions/ExtensionSlot.vue'
+import { useEntityContributions } from '@/scripts/extensions/runtime'
+import { currencyCodeOf, entityFormContext } from '@/scripts/extensions/records'
+import { useEntitySaveHooks } from '@/scripts/composables/use-entity-save-hooks'
+import InvoiceBasicFields from '../components/InvoiceBasicFields.vue'
+import {
+  DocumentItemsTable,
+  DocumentFormActionBar,
+  DocumentTotals,
+  DocumentNotes,
+  TemplateSelectButton,
+  SelectTemplateModal,
+} from '../../../shared/document-form'
+
+const invoiceStore = useInvoiceStore()
+const recurringInvoiceStore = useRecurringInvoiceStore()
+const companyStore = useCompanyStore()
+const notificationStore = useNotificationStore()
+const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const { isPhone } = useBreakpoints()
+
+const invoiceValidationScope = 'newInvoice'
+const isSaving = ref<boolean>(false)
+const isMarkAsDefault = ref<boolean>(false)
+const isRecurring = ref<boolean>(false)
+
+// Auto-due-date bookkeeping: tracks whether the user has manually edited the
+// due date, so the invoice_date watcher can avoid clobbering a manual value.
+const dueDateManuallyChanged = ref<boolean>(false)
+let isAutoUpdatingDueDate = false
+const expectedAutoDueDate = ref<string | null>(null)
+
+const invoiceNoteFieldList = ref<string[]>(['customer', 'company', 'invoice'])
+
+const isLoadingContent = computed<boolean>(
+  () => invoiceStore.isFetchingInvoice || invoiceStore.isFetchingInitialSettings,
+)
+
+const pageTitle = computed<string>(() => {
+  if (isRecurringEdit.value) return t('recurring_invoices.edit_invoice')
+  if (isEdit.value) return t('invoices.edit_invoice')
+  return t('invoices.new_invoice')
+})
+
+const isEdit = computed<boolean>(() =>
+  route.name === 'invoices.edit' || route.name === 'recurring-invoices.edit',
+)
+
+const isRecurringEdit = computed<boolean>(() =>
+  route.name === 'recurring-invoices.edit',
+)
+
+/** Module form actions, sections and save hooks; see registerEntityFormSection / registerEntitySaveHook. */
+const extensionFormContext = entityFormContext('invoice', {
+  isEdit: () => isEdit.value,
+  record: () => invoiceStore.newInvoice,
+  isRecurring: () => isRecurring.value,
+  total: () => invoiceStore.getTotal,
+  currencyCode: () => currencyCodeOf(invoiceStore.newInvoice.selectedCurrency),
+  date: () => invoiceStore.newInvoice.invoice_date || null,
+  dueDate: () => invoiceStore.newInvoice.due_date || null,
+})
+const formActions = useEntityContributions('actions:form', 'invoice')
+const saveHooks = useEntitySaveHooks()
+
+const rules = computed(() => {
+  if (isRecurring.value) {
+    return {
+      customer_id: {
+        required: helpers.withMessage(t('validation.required'), required),
+      },
+    }
+  }
+  return {
+    invoice_date: {
+      required: helpers.withMessage(t('validation.required'), required),
+    },
+    reference_number: {
+      maxLength: helpers.withMessage(t('validation.price_maxlength'), maxLength(255)),
+    },
+    customer_id: {
+      required: helpers.withMessage(t('validation.required'), required),
+    },
+    invoice_number: {
+      required: helpers.withMessage(t('validation.required'), required),
+    },
+    exchange_rate: {
+      required: requiredIf(() => invoiceStore.showExchangeRate),
+    },
+  }
+})
+
+const v$ = useVuelidate(
+  rules,
+  computed(() => invoiceStore.newInvoice),
+  { $scope: invoiceValidationScope },
+)
+
+// Initialization
+invoiceStore.resetCurrentInvoice()
+v$.value.$reset
+
+// Check for recurring mode
+if (route.query.recurring === '1' || isRecurringEdit.value) {
+  isRecurring.value = true
+}
+
+// Initialize recurring store
+recurringInvoiceStore.initFrequencies(t)
+
+if (isRecurringEdit.value) {
+  // Editing a recurring invoice — load its data into both stores
+  recurringInvoiceStore.resetCurrentRecurringInvoice()
+  recurringInvoiceStore.fetchRecurringInvoiceInitialSettings(
+    true,
+    { id: route.params.id as string, query: route.query as Record<string, string> },
+  ).then(() => {
+    // Sync recurring data to invoice store for the shared form fields
+    const ri = recurringInvoiceStore.newRecurringInvoice
+    invoiceStore.newInvoice.customer = ri.customer
+    invoiceStore.newInvoice.customer_id = ri.customer_id
+    invoiceStore.newInvoice.items = ri.items as typeof invoiceStore.newInvoice.items
+    invoiceStore.newInvoice.taxes = ri.taxes as typeof invoiceStore.newInvoice.taxes
+    invoiceStore.newInvoice.notes = ri.notes
+    invoiceStore.newInvoice.discount = ri.discount
+    invoiceStore.newInvoice.discount_type = ri.discount_type as typeof invoiceStore.newInvoice.discount_type
+    invoiceStore.newInvoice.discount_val = ri.discount_val
+    invoiceStore.newInvoice.discount_per_item = ri.discount_per_item
+    invoiceStore.newInvoice.tax_per_item = ri.tax_per_item
+    invoiceStore.newInvoice.tax_included = ri.tax_included
+    invoiceStore.newInvoice.template_name = ri.template_name
+    invoiceStore.newInvoice.currency_id = ri.currency_id as typeof invoiceStore.newInvoice.currency_id
+    invoiceStore.newInvoice.exchange_rate = ri.exchange_rate as typeof invoiceStore.newInvoice.exchange_rate
+    invoiceStore.newInvoice.customFields = ri.customFields as typeof invoiceStore.newInvoice.customFields
+  })
+} else if (!isRecurring.value) {
+  // Normal invoice create/edit
+  invoiceStore.fetchInvoiceInitialSettings(
+    isEdit.value,
+    { id: route.params.id as string, query: route.query as Record<string, string> },
+  )
+} else {
+  // New recurring invoice — just initialize
+  recurringInvoiceStore.resetCurrentRecurringInvoice()
+  invoiceStore.fetchInvoiceInitialSettings(
+    false,
+    { query: route.query as Record<string, string> },
+  )
+}
+
+// Initialize recurring store when toggled on manually
+watch(isRecurring, (newVal) => {
+  if (newVal && !isRecurringEdit.value) {
+    recurringInvoiceStore.resetCurrentRecurringInvoice()
+  }
+})
+
+watch(
+  () => invoiceStore.newInvoice.customer,
+  (newVal) => {
+    if (newVal && (newVal as Record<string, unknown>).currency) {
+      invoiceStore.newInvoice.selectedCurrency = (
+        newVal as Record<string, unknown>
+      ).currency as Record<string, unknown>
+    }
+  },
+)
+
+// Detect manual edits to the due date so we know not to overwrite them
+// when the invoice date changes afterwards.
+watch(
+  () => invoiceStore.newInvoice.due_date,
+  (newDueDate, oldDueDate) => {
+    if (
+      !isAutoUpdatingDueDate
+      && newDueDate !== oldDueDate
+      && oldDueDate !== undefined
+      && newDueDate !== expectedAutoDueDate.value
+    ) {
+      dueDateManuallyChanged.value = true
+    }
+  },
+)
+
+// Auto-compute due_date = invoice_date + invoice_due_date_days whenever the
+// invoice date changes, if the company setting opts into automatic dates
+// and the user hasn't locked a manual due date in the future.
+watch(
+  () => invoiceStore.newInvoice.invoice_date,
+  (newInvoiceDate, oldInvoiceDate) => {
+    if (
+      companyStore.selectedCompanySettings?.invoice_set_due_date_automatically !== 'YES'
+      || !newInvoiceDate
+      || newInvoiceDate === oldInvoiceDate
+      || oldInvoiceDate === undefined
+    ) {
+      return
+    }
+
+    const dueDateDays = parseInt(
+      companyStore.selectedCompanySettings?.invoice_due_date_days ?? '0',
+      10,
+    )
+    const invoiceDate = parseISO(newInvoiceDate as string)
+    if (!isValid(invoiceDate)) {
+      return
+    }
+
+    const calculatedDueDate = format(addDays(invoiceDate, dueDateDays), 'yyyy-MM-dd')
+    expectedAutoDueDate.value = calculatedDueDate
+
+    if (dueDateManuallyChanged.value) {
+      const currentDueDate = invoiceStore.newInvoice.due_date
+      if (currentDueDate) {
+        const currentDue = parseISO(currentDueDate as string)
+        if (isValid(currentDue) && differenceInCalendarDays(currentDue, invoiceDate) >= 0) {
+          // Manual due date still valid — leave it alone
+          return
+        }
+      }
+      // Manual due date is in the past / invalid — take back control
+      dueDateManuallyChanged.value = false
+    }
+
+    isAutoUpdatingDueDate = true
+    invoiceStore.newInvoice.due_date = calculatedDueDate
+    isAutoUpdatingDueDate = false
+  },
+)
+
+async function submitForm(): Promise<void> {
+  v$.value.$touch()
+
+  if (v$.value.$invalid) {
+    // The first invalid field, often the customer, takes focus on its own
+    notificationStore.showNotification({ type: 'error', message: t('general.check_highlighted_fields') })
+    return
+  }
+
+  isSaving.value = true
+
+  try {
+    if (isRecurring.value) {
+      const recurringData = recurringInvoiceStore.newRecurringInvoice
+      const invoiceData = invoiceStore.newInvoice
+
+      // Build clean payload with only backend-expected fields
+      const data: Record<string, unknown> = {
+        // Recurring-specific fields
+        starts_at: recurringData.starts_at,
+        send_automatically: recurringData.send_automatically ? 1 : 0,
+        frequency: recurringData.frequency,
+        status: recurringData.status || 'ACTIVE',
+        limit_by: recurringData.limit_by || 'NONE',
+        limit_count: recurringData.limit_count,
+        limit_date: recurringData.limit_date,
+
+        // Shared fields from invoice form
+        customer_id: invoiceData.customer_id,
+        discount: invoiceData.discount,
+        discount_type: invoiceData.discount_type,
+        discount_val: invoiceData.discount_val,
+        discount_per_item: invoiceData.discount_per_item,
+        tax_per_item: invoiceData.tax_per_item,
+        tax_included: invoiceData.tax_included,
+        sales_tax_type: invoiceData.sales_tax_type,
+        sales_tax_address_type: invoiceData.sales_tax_address_type,
+        notes: invoiceData.notes,
+        template_name: invoiceData.template_name,
+        items: cloneDeep(invoiceData.items),
+        taxes: cloneDeep(invoiceData.taxes),
+        currency_id: invoiceData.currency_id,
+        exchange_rate: invoiceData.exchange_rate,
+        customFields: invoiceData.customFields,
+
+        // Calculated totals
+        sub_total: Math.round(invoiceStore.getSubTotal),
+        total: Math.round(invoiceStore.getTotal),
+        tax: Math.round(invoiceStore.getTotalTax),
+      }
+
+      let response
+      if (isRecurringEdit.value) {
+        data.id = recurringData.id
+        response = await recurringInvoiceStore.updateRecurringInvoice(data)
+      } else {
+        response = await recurringInvoiceStore.addRecurringInvoice(data)
+      }
+      router.push(`/admin/recurring-invoices/${response.data.data.id}/view`)
+    } else {
+      const data: Record<string, unknown> = {
+        ...cloneDeep(invoiceStore.newInvoice),
+        sub_total: Math.round(invoiceStore.getSubTotal),
+        total: Math.round(invoiceStore.getTotal),
+        tax: Math.round(invoiceStore.getTotalTax),
+      }
+
+      const items = data.items as Array<Record<string, unknown>>
+      if (data.discount_per_item === 'YES') {
+        items.forEach((item, index) => {
+          if (item.discount_type === 'fixed') {
+            items[index].discount = (item.discount as number) * 100
+          }
+        })
+      } else {
+        if (data.discount_type === 'fixed') {
+          data.discount = (data.discount as number) * 100
+        }
+      }
+
+      const taxes = data.taxes as Array<Record<string, unknown>>
+      if (data.tax_per_item !== 'YES' && taxes.length) {
+        data.tax_type_ids = taxes.map((tax) => tax.tax_type_id)
+      }
+
+      const action = isEdit.value
+        ? invoiceStore.updateInvoice
+        : invoiceStore.addInvoice
+
+      const response = await action(data)
+      // The invoice is saved; module hooks cannot fail the save (see useEntitySaveHooks).
+      const handled = await saveHooks.run('invoice', response.data.data, extensionFormContext)
+
+      if (!handled) {
+        router.push(`/admin/invoices/${response.data.data.id}/view`)
+      }
+    }
+  } catch (err: unknown) {
+    const normalized = handleApiError(err)
+    const translationKey = getErrorTranslationKey(normalized.message)
+
+    notificationStore.showNotification({
+      type: 'error',
+      message: translationKey ? t(translationKey) : normalized.message,
+    })
+  } finally {
+    isSaving.value = false
+  }
+}
+</script>

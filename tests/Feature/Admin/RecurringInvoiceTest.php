@@ -1,10 +1,11 @@
 <?php
 
-use App\Http\Controllers\V1\Admin\RecurringInvoice\RecurringInvoiceController;
-use App\Http\Requests\RecurringInvoiceRequest;
-use App\Models\InvoiceItem;
-use App\Models\RecurringInvoice;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Sales\Application\RecurringInvoiceService;
+use App\Domains\Sales\Http\Controllers\Company\RecurringInvoiceController;
+use App\Domains\Sales\Http\Requests\RecurringInvoiceRequest;
+use App\Domains\Sales\Models\InvoiceItem;
+use App\Domains\Sales\Models\RecurringInvoice;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
@@ -58,6 +59,60 @@ test('store recurring invoice', function () {
         ->toArray();
 
     $this->assertDatabaseHas('recurring_invoices', $recurringInvoice);
+});
+
+test('rejects a nonzero per-item placeholder tax row', function () {
+    $recurringInvoice = RecurringInvoice::factory()->raw([
+        'items' => [
+            InvoiceItem::factory()->raw([
+                'taxes' => [[
+                    'tax_type_id' => 0,
+                    'amount' => 1,
+                ]],
+            ]),
+        ],
+    ]);
+
+    postJson('api/v1/recurring-invoices', $recurringInvoice)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('items.0.taxes.0.amount');
+});
+
+test('allows a zero-valued per-item placeholder tax row', function () {
+    $recurringInvoice = RecurringInvoice::factory()->raw([
+        'items' => [
+            InvoiceItem::factory()->raw([
+                'taxes' => [[
+                    'tax_type_id' => 0,
+                    'amount' => 0,
+                ]],
+            ]),
+        ],
+    ]);
+
+    postJson('api/v1/recurring-invoices', $recurringInvoice)
+        ->assertCreated();
+});
+
+test('generated invoices retain the recurring template tax-included semantics', function () {
+    $recurringInvoice = RecurringInvoice::factory()->create([
+        'starts_at' => Carbon::yesterday(),
+        'limit_by' => RecurringInvoice::NONE,
+        'tax_included' => true,
+        'sub_total' => 10000,
+        'tax' => 2019,
+        'total' => 10119,
+        'due_amount' => 10119,
+    ]);
+
+    app(RecurringInvoiceService::class)->generateInvoice($recurringInvoice);
+
+    $this->assertDatabaseHas('invoices', [
+        'recurring_invoice_id' => $recurringInvoice->id,
+        'tax_included' => 1,
+        'tax' => 2019,
+        'total' => 10119,
+    ]);
 });
 
 test('get recurring invoice', function () {

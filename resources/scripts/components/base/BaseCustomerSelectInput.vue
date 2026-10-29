@@ -1,5 +1,98 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useCustomerStore } from '../../features/company/customers/store'
+import { useModalStore } from '../../stores/modal.store'
+import { useUserStore } from '../../stores/user.store'
+import { ABILITIES } from '../../config/abilities'
+import CustomerModal from '../../features/company/customers/components/CustomerModal.vue'
+
+interface Props {
+  modelValue?: string | number | Record<string, unknown> | null
+  fetchAll?: boolean
+  showAction?: boolean
+  /** For an optional customer, such as on an expense */
+  canDeselect?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  modelValue: '',
+  fetchAll: false,
+  showAction: false,
+  canDeselect: false,
+})
+
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string | number | Record<string, unknown> | null): void
+}>()
+
+const { t } = useI18n()
+const modalStore = useModalStore()
+const customerStore = useCustomerStore()
+const userStore = useUserStore()
+
+const selectedCustomer = computed({
+  get: () => props.modelValue,
+  set: (value) => {
+    emit('update:modelValue', value as string | number | Record<string, unknown> | null)
+  },
+})
+
+async function searchCustomers(search: string) {
+  const data: Record<string, unknown> = { search }
+
+  if (props.fetchAll) {
+    data.limit = 'all'
+  }
+
+  const response = await customerStore.fetchCustomers(data)
+  const results = response.data ?? []
+
+  // A customer just added here may sort past the first page of results
+  if (created.value && !results.some((c: Record<string, unknown>) => c.id === created.value?.id)) {
+    results.unshift(created.value as typeof results[0])
+  }
+
+  if (results.length > 0 && customerStore.editCustomer) {
+    const customerFound = results.find(
+      (c: Record<string, unknown>) => c.id === customerStore.editCustomer?.id
+    )
+    if (!customerFound) {
+      const editCopy = { ...customerStore.editCustomer }
+      results.unshift(editCopy as typeof results[0])
+    }
+  }
+
+  return results
+}
+
+const created = ref<Record<string, unknown> | null>(null)
+
+// Remounting the select reloads its options, so the new customer shows by name
+const reloadKey = ref<number>(0)
+
+function addCustomer(): void {
+  customerStore.resetCurrentCustomer()
+
+  modalStore.openModal({
+    title: t('customers.add_new_customer'),
+    componentName: 'CustomerModal',
+    refreshData: (customer: unknown) => {
+      const saved = customer as Record<string, unknown> | undefined
+
+      if (saved?.id) {
+        created.value = saved
+        reloadKey.value++
+        selectedCustomer.value = saved.id as number
+      }
+    },
+  })
+}
+</script>
+
 <template>
   <BaseMultiselect
+    :key="reloadKey"
     v-model="selectedCustomer"
     v-bind="$attrs"
     track-by="name"
@@ -12,17 +105,17 @@
     :options="searchCustomers"
     label-value="name"
     :placeholder="$t('customers.type_or_click')"
-    :can-deselect="false"
+    :can-deselect="canDeselect"
     class="w-full"
   >
     <template v-if="showAction" #action>
       <BaseSelectAction
-        v-if="userStore.hasAbilities(abilities.CREATE_CUSTOMER)"
+        v-if="userStore.hasAbilities(ABILITIES.CREATE_CUSTOMER)"
         @click="addCustomer"
       >
         <BaseIcon
           name="UserPlusIcon"
-          class="h-4 mr-2 -ml-2 text-center text-primary-400"
+          class="h-4 me-2 -ms-2 text-center text-primary-400"
         />
 
         {{ $t('customers.add_new_customer') }}
@@ -32,73 +125,3 @@
 
   <CustomerModal />
 </template>
-
-<script setup>
-import { useCustomerStore } from '@/scripts/admin/stores/customer'
-import { computed, watch } from 'vue'
-import { useModalStore } from '@/scripts/stores/modal'
-import { useI18n } from 'vue-i18n'
-import CustomerModal from '@/scripts/admin/components/modal-components/CustomerModal.vue'
-import { useUserStore } from '@/scripts/admin/stores/user'
-import abilities from '@/scripts/admin/stub/abilities'
-
-const props = defineProps({
-  modelValue: {
-    type: [String, Number, Object],
-    default: '',
-  },
-  fetchAll: {
-    type: Boolean,
-    default: false,
-  },
-  showAction: {
-    type: Boolean,
-    default: false,
-  },
-})
-
-const { t } = useI18n()
-
-const emit = defineEmits(['update:modelValue'])
-
-const modalStore = useModalStore()
-const customerStore = useCustomerStore()
-const userStore = useUserStore()
-
-const selectedCustomer = computed({
-  get: () => props.modelValue,
-  set: (value) => {
-    emit('update:modelValue', value)
-  },
-})
-
-async function searchCustomers(search) {
-  let data = {
-    search,
-  }
-
-  if (props.fetchAll) {
-    data.limit = 'all'
-  }
-
-  let res = await customerStore.fetchCustomers(data)
-  if(res.data.data.length>0 && customerStore.editCustomer) {
-    let customerFound = res.data.data.find((c) => c.id==customerStore.editCustomer.id)
-    if(!customerFound) {
-      let edit_customer = Object.assign({}, customerStore.editCustomer)
-      res.data.data.unshift(edit_customer)
-    }
-  }
-
-  return res.data.data
-}
-
-async function addCustomer() {
-  customerStore.resetCurrentCustomer()
-
-  modalStore.openModal({
-    title: t('customers.add_new_customer'),
-    componentName: 'CustomerModal',
-  })
-}
-</script>

@@ -1,16 +1,16 @@
-<script>
-import { h } from 'vue'
+<script lang="ts">
+import { h, defineComponent } from 'vue'
 
-export default {
+export default defineComponent({
+  name: 'BaseCustomTag',
   props: {
     tag: {
       type: String,
       default: 'button',
     },
   },
-  setup(props, { slots, attrs, emit }) {
-    // return the render function
-    return () => h(`${props.tag}`, attrs, slots)
+  setup(props, { slots, attrs }) {
+    return () => h(props.tag, attrs, slots)
   },
-}
+})
 </script>

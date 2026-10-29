@@ -1,234 +1,264 @@
-<laravel-boost-guidelines>
-=== foundation rules ===
+# AGENTS.md
 
-# Laravel Boost Guidelines
+Canonical guide for AI coding agents working in this repository. The tool-specific files
+(`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`) are gitignored symlinks to this file —
+run `composer run ai-docs` to (re)create them.
 
-The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when building Laravel applications.
+## Project Overview
 
-## Foundational Context
+InvoiceShelf is an open-source invoicing and expense tracking application built with Laravel 13 (PHP 8.4+; the Docker image ships 8.5) and Vue 3. It supports multi-company tenancy, customer portals, recurring invoices, and PDF generation.
 
-This application is a Laravel application and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
+## Common Commands
 
-- php - 8.4
-- laravel/framework (LARAVEL) - v13
-- laravel/prompts (PROMPTS) - v0
-- laravel/sanctum (SANCTUM) - v4
-- phpunit/phpunit (PHPUNIT) - v12
-- laravel/boost (BOOST) - v2
-- laravel/mcp (MCP) - v0
-- laravel/pint (PINT) - v1
-- laravel/sail (SAIL) - v1
-- pestphp/pest (PEST) - v4
-- vue (VUE) - v3
-- eslint (ESLINT) - v9
-- prettier (PRETTIER) - v3
-- tailwindcss (TAILWINDCSS) - v3
-
-## Skills Activation
-
-This project has domain-specific skills available. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
-
-- `pest-testing` — Use this skill for Pest PHP testing in Laravel projects only. Trigger whenever any test is being written, edited, fixed, or refactored — including fixing tests that broke after a code change, adding assertions, converting PHPUnit to Pest, adding datasets, and TDD workflows. Always activate when the user asks how to write something in Pest, mentions test files or directories (tests/Feature, tests/Unit, tests/Browser), or needs browser testing, smoke testing multiple pages for JS errors, or architecture tests. Covers: it()/expect() syntax, datasets, mocking, browser testing (visit/click/fill), smoke testing, arch(), Livewire component tests, RefreshDatabase, and all Pest 4 features. Do not use for factories, seeders, migrations, controllers, models, or non-test PHP code.
-- `tailwindcss-development` — Always invoke when the user's message includes 'tailwind' in any form. Also invoke for: building responsive grid layouts (multi-column card grids, product grids), flex/grid page structures (dashboards with sidebars, fixed topbars, mobile-toggle navs), styling UI components (cards, tables, navbars, pricing sections, forms, inputs, badges), adding dark mode variants, fixing spacing or typography, and Tailwind v3/v4 work. The core use case: writing or fixing Tailwind utility classes in HTML templates (Blade, JSX, Vue). Skip for backend PHP logic, database queries, API routes, JavaScript with no HTML/CSS component, CSS file audits, build tool configuration, and vanilla CSS.
-- `medialibrary-development` — Build and work with spatie/laravel-medialibrary features including associating files with Eloquent models, defining media collections and conversions, generating responsive images, and retrieving media URLs and paths.
-
-## Conventions
-
-- You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.
-- Use descriptive names for variables and methods. For example, `isRegisteredForDiscounts`, not `discount()`.
-- Check for existing components to reuse before writing a new one.
-
-## Verification Scripts
-
-- Do not create verification scripts or tinker when tests cover that functionality and prove they work. Unit and feature tests are more important.
-
-## Application Structure & Architecture
-
-- Stick to existing directory structure; don't create new base folders without approval.
-- Do not change the application's dependencies without approval.
-
-## Frontend Bundling
-
-- If the user doesn't see a frontend change reflected in the UI, it could mean they need to run `npm run build`, `npm run dev`, or `composer run dev`. Ask them.
-
-## Documentation Files
-
-- You must only create documentation files if explicitly requested by the user.
-
-## Replies
-
-- Be concise in your explanations - focus on what's important rather than explaining obvious details.
-
-=== boost rules ===
-
-# Laravel Boost
-
-- Laravel Boost is an MCP server that comes with powerful tools designed specifically for this application. Use them.
-
-## Artisan Commands
-
-- Run Artisan commands directly via the command line (e.g., `php artisan route:list`, `php artisan tinker --execute "..."`).
-- Use `php artisan list` to discover available commands and `php artisan [command] --help` to check parameters.
-
-## URLs
-
-- Whenever you share a project URL with the user, you should use the `get-absolute-url` tool to ensure you're using the correct scheme, domain/IP, and port.
-
-## Debugging
-
-- Use the `database-query` tool when you only need to read from the database.
-- Use the `database-schema` tool to inspect table structure before writing migrations or models.
-- To execute PHP code for debugging, run `php artisan tinker --execute "your code here"` directly.
-- To read configuration values, read the config files directly or run `php artisan config:show [key]`.
-- To inspect routes, run `php artisan route:list` directly.
-- To check environment variables, read the `.env` file directly.
-
-## Reading Browser Logs With the `browser-logs` Tool
-
-- You can read browser logs, errors, and exceptions using the `browser-logs` tool from Boost.
-- Only recent browser logs will be useful - ignore old logs.
-
-## Searching Documentation (Critically Important)
-
-- Boost comes with a powerful `search-docs` tool you should use before trying other approaches when working with Laravel or Laravel ecosystem packages. This tool automatically passes a list of installed packages and their versions to the remote Boost API, so it returns only version-specific documentation for the user's circumstance. You should pass an array of packages to filter on if you know you need docs for particular packages.
-- Search the documentation before making code changes to ensure we are taking the correct approach.
-- Use multiple, broad, simple, topic-based queries at once. For example: `['rate limiting', 'routing rate limiting', 'routing']`. The most relevant results will be returned first.
-- Do not add package names to queries; package information is already shared. For example, use `test resource table`, not `filament 4 test resource table`.
-
-### Available Search Syntax
-
-1. Simple Word Searches with auto-stemming - query=authentication - finds 'authenticate' and 'auth'.
-2. Multiple Words (AND Logic) - query=rate limit - finds knowledge containing both "rate" AND "limit".
-3. Quoted Phrases (Exact Position) - query="infinite scroll" - words must be adjacent and in that order.
-4. Mixed Queries - query=middleware "rate limit" - "middleware" AND exact phrase "rate limit".
-5. Multiple Queries - queries=["authentication", "middleware"] - ANY of these terms.
-
-=== php rules ===
-
-# PHP
-
-- Always use curly braces for control structures, even for single-line bodies.
-
-## Constructors
-
-- Use PHP 8 constructor property promotion in `__construct()`.
-    - `public function __construct(public GitHub $github) { }`
-- Do not allow empty `__construct()` methods with zero parameters unless the constructor is private.
-
-## Type Declarations
-
-- Always use explicit return type declarations for methods and functions.
-- Use appropriate PHP type hints for method parameters.
-
-<!-- Explicit Return Types and Method Params -->
-```php
-protected function isAccessible(User $user, ?string $path = null): bool
-{
-    ...
-}
+### Development
+```bash
+composer run dev          # Starts PHP server, queue listener, log tail, and Vite dev server concurrently
+pnpm dev               # Vite dev server only
+pnpm build             # Production frontend build
 ```
 
-## Enums
+### Demo data
+```bash
+php artisan db:seed --class=DemoSeeder --force            # demo user + Acme Inc, its address and settings
+php artisan db:seed --class=RealisticDemoSeeder --force   # ~100 records: customers, invoices with tax, estimates, payments, expenses, notes, a recurring invoice
+```
 
-- Typically, keys in an Enum should be TitleCase. For example: `FavoritePerson`, `BestLake`, `Monthly`.
+`DemoSeeder` is what the test suite and `php artisan reset:app` run — keep it cheap. `RealisticDemoSeeder` is development-only and never runs in tests; it is what to seed when you want the app to look like a real install (a company with a logo and postal address, taxed documents, a populated notes library). It turns the demo company into Acme GmbH in Berlin, billing German customers in euros with 19% and 7% VAT, and the public demo's `PublicDemoSeeder` creates the same company, so screenshots and the demo show a business that can issue e-invoices.
 
-## Comments
+> **Local environment (preferred):** the repo ships a `./devenv` script — a Docker Compose wrapper for the full local stack. Run `./devenv` once for interactive setup (pick MySQL/PostgreSQL/SQLite, optional Gotenberg; it adds the `invoiceshelf.test` host entry), then drive it with `./devenv start | stop | shell | logs | rebuild | test | format`. App at http://invoiceshelf.test, Adminer at `:8080`, Mailpit at `:8025`; the compose files live in `docker/development/` and your choice is remembered in `.devenvconfig`. (`composer run dev` / `pnpm dev` above are the native, non-Docker alternative.)
 
-- Prefer PHPDoc blocks over inline comments. Never use comments within the code itself unless the logic is exceptionally complex.
+### Testing
+```bash
+php artisan test --compact                        # Run all tests
+php artisan test --compact --filter=testName       # Run specific test
+./vendor/bin/pest --stop-on-failure                # Run via Pest directly
+make test                                          # Makefile shortcut
+```
 
-## PHPDoc Blocks
+Tests use SQLite in-memory DB, configured in `phpunit.xml`. Tests seed via `DatabaseSeeder` + `DemoSeeder` in `beforeEach`. Authenticate with `Sanctum::actingAs()` and set the `company` header.
 
-- Add useful array shape type definitions when appropriate.
+### Code Style
+```bash
+vendor/bin/pint --dirty --format agent    # Fix style on modified PHP files
+vendor/bin/pint --test                    # Check style without fixing (CI uses this)
+composer lint        # = pint --test   ;  composer lint:fix = pint
+pnpm lint         # eslint (--max-warnings 0)  ;  pnpm lint:fix = eslint --fix
+```
 
-=== herd rules ===
+### Code Quality Gate (pre-commit hook)
+A committed Git hook (`.githooks/pre-commit`) runs **Pint** on staged `.php` and **ESLint** on staged
+`resources/scripts/**` `.{js,cjs,mjs,ts,vue}` files, and **blocks the commit on any failure** (ESLint runs
+with `--max-warnings 0`). It lints **staged files only**, and soft-skips if PHP/Pint or `node_modules` is
+unavailable (CI is the backstop). The hook is enabled via `core.hooksPath`, set automatically by the
+`prepare` script on `pnpm install`; to enable it manually run:
+```bash
+git config core.hooksPath .githooks
+```
+Bypass intentionally (discouraged): `git commit --no-verify`. Intentional `v-html` is allowed via an
+inline `<!-- eslint-disable-next-line vue/no-v-html -->` with a reason.
 
-# Laravel Herd
+### Artisan Generators
+Always use `php artisan make:*` with `--no-interaction` to create new files (models, controllers, migrations, tests, etc.).
 
-- The application is served by Laravel Herd and will be available at: `https?://[kebab-case-project-dir].test`. Use the `get-absolute-url` tool to generate valid URLs for the user.
-- You must not run any commands to make the site available via HTTP(S). It is always available through Laravel Herd.
+## Architecture
 
-=== tests rules ===
+### Multi-Tenancy
+Every major model has a `company_id` foreign key. The `CompanyMiddleware` sets the active company from the `company` request header. Bouncer authorization is scoped to the company level via `DefaultScope` (`app/Bouncer/Scopes/DefaultScope.php`).
 
-# Test Enforcement
+### Roles
+- **`super admin`** — global platform admin (unscoped, manages all companies).
+- **`owner`** — company-level admin (scoped to a company via Bouncer, full access to that company).
+- **Role presets** (`role_presets`, `RolePresetService`): roles the super admin defines once (Administration API `super-admin/role-presets`); every company holds a copy named `owner` (the Owner preset, always the whole catalogue) or `preset:{key}`, which it can assign but not edit or delete (`RolePolicy`). Shipped: Owner, Manager, Read only. `CompanyService::setupRoles` gives a new company its copies; editing a preset rewrites every copy; `roles:sync-presets` repairs them. **A new ability reaches the shipped presets through its `presets` entry in `config/abilities.php` (e.g. `'presets' => ['manager', 'read-only']`), never through a migration:** after every `migrate` run, `RolePresetService::applyDefaults` offers each preset the tagged abilities it has not been offered before, and the Owner preset every new ability in the catalogue (tracked in `role_presets.applied_defaults`), so one the super admin removed stays removed and a deleted preset is not recreated. Don't call `syncAll()` from a migration to hand out a new ability. `roles:apply-preset-defaults` runs it by hand.
+- Every write of a role's grants goes through `RoleGrantWriter`, which runs in the role's own Bouncer scope. A super-admin request has no scope, and Bouncer writes made without one land in the wrong company. Note `BouncerFacade::allow($role)->to('name')` with one argument is lazy and runs when the conductor is destroyed, possibly after a scope set with `onceTo()` has ended; pass the model (or `null`) as a second argument inside a scoped closure.
 
-- Every change must be programmatically tested. Write a new test or update an existing test, then run the affected tests to make sure they pass.
-- Run the minimum number of tests needed to ensure code quality and speed. Use `php artisan test --compact` with a specific filename or filter.
+### Authentication
+Four guards: `web` (session), `api` (Sanctum tokens for `/api/v1/`), `customer` (session for customer portal) and `oauth` (Passport access tokens, used by the MCP server). API routes use `auth:sanctum` middleware; customer portal uses `auth:customer`.
 
-=== laravel/core rules ===
+### Routing
+- **API**: All endpoints under `/api/v1/` in `routes/api.php`, grouped with `auth:sanctum`, `company`, and `bouncer` middleware
+- **Web**: `routes/web.php` serves PDF endpoints, auth pages, and catch-all SPA routes (`/admin/{vue?}`, `/{company:slug}/customer/{vue?}`)
 
-# Do Things the Laravel Way
+### Thin clients
 
-- Use `php artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using `php artisan list` and check their parameters with `php artisan [command] --help`.
-- If you're creating a generic PHP class, use `php artisan make:class`.
-- Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
+Mobile clients run the same SPA from their own origin and never load `resources/views/app.blade.php`, so the public `GET /api/v1/app/client-manifest` stands in for it: version, `min_client_version`, `app_url`, page title, login branding, module script/style URLs, and the demo and managed flags. **It mirrors the Blade shell; change one and change the other** (`ClientManifestService`).
 
-## Database
+`config/cors.php` is published and covers `api/*`, the module asset routes, `reports/*` and the PDF routes. `allowed_origins` comes from `CORS_ALLOWED_ORIGINS`, defaulting to `capacitor://` and `https://` on `invoiceshelf.client.hostname`. That hostname must never be `localhost` or `127.0.0.1`: Sanctum's default stateful list holds both, so such an origin gets session and CSRF middleware and every bearer POST fails with 419.
 
-- Always use proper Eloquent relationship methods with return type hints. Prefer relationship methods over raw queries or manual joins.
-- Use Eloquent models and relationships before suggesting raw database queries.
-- Avoid `DB::`; prefer `Model::query()`. Generate code that leverages Laravel's ORM capabilities rather than bypassing them.
-- Generate code that prevents N+1 query problems by using eager loading.
-- Use Laravel's query builder for very complex database operations.
+Tokens never expire, so `GET /api/v1/auth/tokens` and `DELETE /api/v1/auth/tokens/{id}` (the caller's own only) exist to cut off a lost device, and `POST /api/v1/auth/login` is throttled to 10 a minute.
 
-### Model Creation
+**Mobile shell** (`mobile/`, see `mobile/README.md`): a Capacitor 7 project wrapping the `pnpm build:client` output in `mobile/www`. `android/` and `ios/` are committed; `www/` and `node_modules/` are not. Native pieces live in `resources/scripts/platform/capacitor.ts` alone (device name, share-sheet file delivery, in-app browser, receipt camera, the biometric check behind the app lock in `resources/scripts/client/lock.ts`), behind a dynamic import gated on `__INVOICESHELF_CLIENT__` so no Capacitor code reaches the web bundle. The plugins are declared twice, in `mobile/package.json` and the root one, and must stay at the same versions. `capacitor.config.ts`'s `server.hostname` is the contract above: never `localhost`.
 
-- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `php artisan make:model --help` to check the available options.
+### Managed mode
 
-### APIs & Eloquent Resources
+`INVOICESHELF_MANAGED=true` (`config/managed.php`, deliberately outside `config('invoiceshelf')`, which the SPA bootstrap sends to every member) marks an install that a hosting provider runs for its owner, such as InvoiceShelf Cloud. The provider owns storage and backups, PDF rendering and fonts, the server's mail transport and module installation: those route files are mounted behind the `not-managed` middleware (`EnsureNotManaged`, a 403 with `error: managed_mode`), and the SPA hides their settings entries and the marketplace pairing and install controls (`utils/managed.ts`, fed by `window.managed` or the client manifest). Company mail settings, module enable/disable and everything else stay open. **Modules on a managed install:** marketplace pairing stays with the provider (`not-managed`), but installing, updating and uninstalling official modules (the marketplace serves only official, signed releases) is open when the provider mounts a writable `Modules/` directory (`modules-installable`, `ManagedMode::modulesInstallable()`, told to the SPA as `managed.modules_installable`); without one, the provider handles modules. Paid modules are not offered there yet. On every start the Docker image runs `modules:reconcile` before migrations, which disables modules whose `module.json` compatibility no longer fits this version, and module installs clear the opcode cache (`OpcacheReset`), since the cloud image never re-reads PHP files. Mail on a managed install: the environment sets the server transport and stored global settings are ignored; a company may bring its own SMTP server only (public host, port 465, 587 or 2525, TLS or SSL, no DSN); and mail sent through the provider's transport goes out from `mail.from` with the user's chosen address as Reply-To (`OutgoingSender`, used by every mailable that takes a user-chosen sender). A new provider-owned surface goes behind `not-managed` and is listed in `ManagedModeTest`.
 
-- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
+### Module dependencies
 
-## Controllers & Validation
+A module's `dependency_policy` is `host-provided-only` (it may require only PHP, extensions and the SDK) or, from module API 1.4, `bundled`: it ships the third-party packages the host lacks in `Modules/<Name>/bundle/`, built at release by the SDK's `invoiceshelf-module bundle` against a host release's production `composer.lock`. The host never runs Composer for a module, and module `composer.json` files are not merged into the host's (the merge plugin is disallowed). `ModuleRuntimeAutoloader` reads `bundle/classmap.php` through one loader registered after Composer's, so a class the host ships always resolves to the host's copy; `refresh()` drops a module's cached classmap whenever its directory is swapped, restored or removed. A bundle's Composer `files` entries run only for enabled modules, from the `modules.*.register` listener in `ModuleServiceProvider`. `ModuleBundle::problemsFor()` decides whether a bundle fits (host packages at accepted versions, bundled PHP ranges, no package, class or function the host or another module already provides); marketplace install, `install:module` (and so demo resets), the enable endpoint and `modules:reconcile` all run it. The SDK README's "Dependencies" section is the module author's side.
 
-- Always create Form Request classes for validation rather than inline validation in controllers. Include both validation rules and custom error messages.
-- Check sibling Form Requests to see if the application uses array or string based validation rules.
+### Module documents and invoice PDF attachments
 
-## Authentication & Authorization
+Module API 1.5 lets a module turn invoices into other documents, such as EN 16931 e-invoices (`InvoiceShelf/module-e-invoicing`). `InvoiceDocumentReader` (`EloquentInvoiceDocumentReader`) hands a module a whole invoice as the SDK's typed data: amounts as stored, credit notes negative, tax category and exemption reason from each tax row's tax type, unit codes matched by unit name; `tests/Fixtures/modules/invoice-document.standard.json` is the worked example and module fixtures copy it, so change the shape only on purpose. Modules register an `InvoicePdfAttachmentProvider`; `InvoiceService::getPdfData` asks them through the Sales contract `InvoicePdfAttachments` (`ModuleInvoicePdfAttachments`) and passes the XML to `PdfDriver::loadView()`, which only Gotenberg embeds (PDF/A-3b, `factur-x.xml`). `PdfCapabilities` (`GotenbergPdfCapabilities`) says whether that can work: Gotenberg 8.34+ with LibreOffice, so the full image, never `-chromium`. Providers are asked only when it does, a failing provider is reported and skipped, and a Gotenberg that rejects the attachment gets a second request without it, so an e-invoice problem never stops an invoice from going out. Invoice archives record whether attachments applied and are re-rendered when that changes. The conformance suite (`phpunit.conformance.xml`, `pdf-conformance.yaml`) needs a Gotenberg, Mustang and veraPDF named by the `CONFORMANCE_*` variables.
 
-- Use Laravel's built-in authentication and authorization features (gates, policies, Sanctum, etc.).
+### Powered by and the source link
 
-## URL Generation
+The "Powered by" line under the sign-in pages, public documents and document emails comes from one place: `App\Support\PoweredBy`, fed by `config('invoiceshelf.powered_by')` (`INVOICESHELF_POWERED_BY`, `_NAME`, `_URL`), rendered by `emails/partials/powered-by.blade.php` and `components/layout/PoweredBy.vue` and handed to the SPA as `window.powered_by` (Blade shell) or the manifest's `branding.powered_by`. A host may rename or hide it. The account menus (staff and customer portal) always link to the running version's source (`INVOICESHELF_SOURCE_URL`, `{version}` filled in), which AGPL section 13 asks of a hosted install. Never hard-code either.
 
-- When generating links to other pages, prefer named routes and the `route()` function.
+### Customer portal host
 
-## Queues
+`CUSTOMER_PORTAL_URL` (with `CUSTOMER_PORTAL_HOSTS` for extra hosts) gives the customer portal a host of its own, such as `portal.example.com`. Every link sent to a customer is built with `App\Support\Urls\CustomerUrl` (`route()`, `to()`), never `route()` or `url()` directly, so it lands there. The global `RestrictPortalHost` middleware lets a portal host serve only the portal pages and API, public documents, PDFs by hash, module assets and `/up`, answering 404 to everything else, and moves customer pages opened on the app host to the portal host with a 301. The staff SPA reads the address as `window.customer_portal_url` (`customerBaseUrl()` in `utils/documents.ts`). Unset, or set to the app's own host, nothing changes.
 
-- Use queued jobs for time-consuming operations with the `ShouldQueue` interface.
+### MCP server
 
-## Configuration
+`app/Platform/Mcp/` lets AI assistants (Claude, ChatGPT, Claude Code, Cursor) use the app over the Model Context Protocol at `/mcp`, built on `laravel/mcp` and Passport. It is off until a super admin switches it on (`php artisan mcp:enable`, or Administration → Settings → AI connections). The user guide is `docs/guide/ai-assistants.md` in the docs repo.
 
-- Use environment variables only in configuration files - never use the `env()` function directly outside of config files. Always use `config('app.name')`, not `env('APP_NAME')`.
+- **Connections.** Clients register themselves (DCR) and sign in with OAuth 2.1 and PKCE. The consent screen (`OAuth/ConsentScreen`) binds each connection (`McpConnection`) to one user, one company and an access level, `read` or `write`. `BindMcpConnection` puts that company in the `company` header, so `whereCompany()`, Bouncer scoping and the policies work unchanged. A client never names a company.
+- **Tools** live in `Tools/{area}/*Tool.php` and extend `McpTool`. Each one declares all four annotations and the ability it needs (`ability()`). A tool that writes extends `McpWriteTool`, which hides it from read-only connections, limits a connection to 30 changes a minute, takes an `idempotency_key` when `creates()` is true, and logs every change in `mcp_activity`. Tools that delete or send email take a required `confirm` and do nothing without it (`RequiresConfirmation`). Sends are also limited per connection and per company (`SendsMail`). `ToolCatalogueTest` enforces all of this for every tool on the server.
+- **Writes use the app's own path.** A tool composes the payload the SPA would send (`SalesDocumentComposer`, `PaymentComposer`; the arithmetic is `App\Support\DocumentTaxes`, a port of the document forms), validates it with the domain's form request through `Support/DomainRequestValidator`, and stores it with the same service the controller uses. Never compute amounts in a tool, and never write a model directly.
+- **Reads** return presenters (`Presenters/*`) with explicit fields, never `toArray()`. Money is `{amount, currency, formatted}` with a major-unit decimal string. Company figures sum the `base_*` columns.
+- **Adding a tool:** a class in `Tools/`, listed in `Servers/InvoiceShelfServer::$tools`, and a test. Its name and description are what the model reads, so write them for someone who has never seen the app.
 
-## Testing
+### Frontend
+- Vue 3 + TypeScript + Pinia + vue-router + Tailwind v4 (`@tailwindcss/vite`)
+- Entry point: `resources/scripts/main.ts` (single Vite input)
+- Feature-folder layout under `resources/scripts/features/{admin,auth,company,customer-portal,...}` — each feature owns its own `routes.ts`, `views/`, `components/`
+- Shared layers: `resources/scripts/{api,stores,components,composables,layouts,plugins,utils,types,config}`
+- Path aliases: `@` → `resources/` (so most imports look like `@/scripts/api/client`, `@/scripts/stores/global.store`); `$fonts` → `resources/static/fonts`; `$images` → `resources/static/img`. There is no `@v2` alias — that was retired when the legacy v1 SPA was deleted.
+- i18n: `lang/*.json` are dynamically imported by `resources/scripts/plugins/i18n.ts`. Locale-code → filename mismatches (e.g. `pt_BR` → `pt-br.json`) live in `LOCALE_FILE_MAP`. English is statically bundled; other locales lazy-load. Only edit `lang/en.json` directly — other locales are Crowdin-sourced: `.github/workflows/crowdin.yml` uploads `en.json` when it changes on 3.x and opens a daily pull request from `l10n_3.x` (cut fresh from 3.x, committed by Crowdin Bot). `.github/scripts/clean-translations.php` drops stale keys, translations whose `{placeholders}` differ from English and empty strings before that pull request opens, and `TranslationFilesTest` keeps the committed files clean. File names come from `crowdin.yml`'s language mapping.
+- Vite dev server expects the `invoiceshelf.test` hostname (configured in `vite.config.js`)
 
-- When creating models for tests, use the factories for the models. Check if the factory has custom states that can be used before manually setting up the model.
-- Faker: Use methods such as `$this->faker->word()` or `fake()->randomDigit()`. Follow existing conventions whether to use `$this->faker` or `fake()`.
-- When creating tests, make use of `php artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
+### CSS Theme Tokens
+The styling system uses **Tailwind v4 with CSS custom properties as the source of truth** — colors are not configured in JS, they live in CSS and are exposed to Tailwind via the `@theme` directive. Two files own this:
 
-## Vite Error
+1. **`resources/css/themes.css`** — defines every color as a CSS custom property on `:root` (light) and `[data-theme="dark"]` (dark). This is where you change actual values.
+2. **`resources/css/invoiceshelf.css`** — has an `@theme inline { ... }` block that **registers** each custom property as a Tailwind theme token (e.g. `--color-heading: var(--color-heading);`), making it available as utility classes (`bg-heading`, `text-heading`, `border-heading`, etc.). The block also uses the legacy `@theme { --spacing-88: 22rem; --font-base: Poppins, sans-serif; }` for non-color tokens.
 
-- If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+**Token categories defined today:**
+- `primary-{50…950}` — brand color scale
+- `surface`, `surface-secondary`, `surface-tertiary`, `surface-muted` — background depth tiers
+- `heading`, `body`, `muted`, `subtle` — text emphasis tiers
+- `line-{light,default,strong}` — borders (`line-strong` is also the text field border)
+- `control-border` — checkbox and switch outlines, 3:1 against a modal's glass
+- `hover`, `hover-strong` — hover backgrounds
+- `header-from`, `header-to` — fixed header gradient stops (not dark-mode-aware)
+- `btn-primary`, `btn-primary-hover` — button colors (fixed, always bold)
+- `status-{yellow,green,blue,red,purple}` — status badge text colors
+- `alert-{warning,error,success,info}-{bg,text}` — alert variants
 
-=== pint/core rules ===
+**Dark mode** is toggled via the `[data-theme="dark"]` attribute on the `<html>` element. The same custom-property names get redefined under that selector — components do **not** need `dark:` variants or conditional logic, they just reference the semantic tokens and the right value is picked up automatically.
 
-# Laravel Pint Code Formatter
+**Adding a new color token is a two-step ritual:**
+1. Add the custom property to **both** `:root` and `[data-theme="dark"]` in `themes.css`
+2. Add a matching `--color-X: var(--color-X);` line inside the `@theme inline` block in `invoiceshelf.css`
 
-- If you have modified any PHP files, you must run `vendor/bin/pint --dirty --format agent` before finalizing changes to ensure your code matches the project's expected style.
-- Do not run `vendor/bin/pint --test --format agent`, simply run `vendor/bin/pint --format agent` to fix any formatting issues.
+After that the token is usable as `bg-X` / `text-X` / `border-X` in Vue templates and as `var(--color-X)` in raw CSS. Skip step 2 and the value exists at the CSS level but Tailwind utility classes won't be generated.
 
-=== pest/core rules ===
+**Convention — never hardcode hex/rgb values in components.** Use the semantic tokens: `text-heading` not `text-gray-900`, `bg-surface` not `bg-white`, `border-line-default` not `border-gray-300`. Hardcoded values won't follow dark-mode flips and will diverge from the rest of the app over time. There are **no exceptions** in the project — even the auth pages (which sit outside the admin chrome) use the same `bg-surface` / `text-heading` / `border-line-default` vocabulary as `BaseCard`, just composed differently.
 
-## Pest
+**Form field borders.** Text fields (inputs, textareas, selects, the multiselect, the rich editor) get their border from the form base styles in `invoiceshelf.css`, or from the `field-border` class when the field is a button or a div. Don't give a field a border colour utility such as `border-line-strong`: Tailwind orders same-property utilities alphabetically, so it would outrank `border-danger` and hide the invalid state.
 
-- This project uses Pest for testing. Create tests: `php artisan make:test --pest {name}`.
-- Run tests: `php artisan test --compact` or filter: `php artisan test --compact --filter=testName`.
-- Do NOT delete tests without approval.
+**Accessibility.** The app targets WCAG 2.2 AA, and `pnpm lint` runs eslint-plugin-vuejs-accessibility. One known exception, decided on 2026-09-23: text field borders measure 1.5 to 2.3:1 against their background, below the 3:1 that SC 1.4.11 asks of a component's boundary, because 3:1 borders made forms look heavy. Fields are still identified by their labels and layout, focus turns the whole border indigo and an invalid field turns it red. Checkboxes and switches do meet 3:1. Revisit that decision before raising field borders to 3:1.
 
-=== spatie/laravel-medialibrary rules ===
+### Backend Patterns
+- **Authorization**: Silber/Bouncer with policies in `app/Policies/`. Controllers use `$this->authorize()`.
+- **Validation**: Form Request classes, never inline validation
+- **API responses**: Eloquent API Resources in `app/Http/Resources/`
+- **PDF generation**: Pluggable driver — `dompdf` (default, via `GeneratesPdfTrait`) or `gotenberg` (headless Chromium). Driver chosen per company through the **PDF Generation** admin settings page.
+- **Outbound hosts**: a setting that names a host the server connects to is checked by `App\Support\Net\PrivateNetworkGuard`, at save time (`PublicHttpUrl`, `PublicHost`) and again when the connection is made. Legitimate private hosts are exempted per feature in `config/network.php` (`GOTENBERG_ALLOWED_PRIVATE_HOST`, `MAIL_ALLOWED_PRIVATE_HOSTS`) through `PrivateNetworkGuard::isExempt($feature, $target)`: the operator names the hosts, never a boolean, never a settings toggle, and one feature's exemption never covers another.
+- **Email**: Mailable classes with `EmailLog` tracking. Mail driver is configurable globally and may be overridden per-company.
+- **Staff notifications** (`app/Platform/Notifications/`): the bell and the emails staff get about their own work. A domain fires an event carrying ids (`app/Domains/*/Events/`), never calling notification code itself; `Listeners/NotifyStaff` turns it into a `NotificationMessage` and `NotificationCenter::send()` delivers it, to every member holding the type's ability in that company (checked in the company's Bouncer scope) or to one named person, on the channels each person chose (`NotificationPreferences`, the user setting `notification_preferences`). Every type is registered in `NotificationsServiceProvider::types()` with its group, ability and default email choice, and needs `inbox.types.{type}.{label,description,title,body}` in `lang/en.json`: the text is never stored, so the bell and the email are written in each reader's language. The stock `notifications` table carries `company_id` (null for a platform notice) and the record it is about (`subject_type`, `subject_id`). A failure to notify is reported and never fails the action it is about.
+- **File storage**: Spatie MediaLibrary backed by the **FileDisk** model — admins create named disk entries (local / S3 / Dropbox / DigitalOcean Spaces) and assign them to purposes (`media_storage`, `pdf_storage`, `backup_storage`) in **Admin → File Disks → Disk Assignments**. New uploads go to the assigned disk; existing files stay where they were and require `php artisan media:secure` to migrate.
+- **Serial numbers**: `SerialNumberService`
+- **Company settings**: `CompanySetting` model (key-value per company)
+- **User settings**: User-level preferences (notably `language`) stored as JSON via `setSettings()`. The sentinel value `'default'` means "inherit the company-level setting" — used for the per-user language preference so promoting/inviting members doesn't freeze a copy of the inviter's language.
 
-## Media Library
+### PDF Font System
+PDFs ship with bundled **Noto Sans** (Latin / Greek / Cyrillic) as the default face. Non-Latin scripts come from on-demand **Font Packages** managed in **Admin → Font Packages** and defined in `FontService::FONT_PACKAGES` (`app/Services/FontService.php`). Currently shipped packages: `noto-sans` (bundled, marker only), `noto-sans-{sc,tc,jp,kr}` (CJK), `noto-sans-hebrew`, `noto-naskh-arabic` (covers `ar`/`fa`/`ur`), `noto-sans-devanagari` (`hi`), `sarabun` (Thai). `GeneratesPdfTrait::ensureFontsForLocale()` synchronously installs the matching package on the first PDF render for a given company language.
 
-- `spatie/laravel-medialibrary` associates files with Eloquent models, with support for collections, conversions, and responsive images.
-- Always activate the `medialibrary-development` skill when working with media uploads, conversions, collections, responsive images, or any code that uses the `HasMedia` interface or `InteractsWithMedia` trait.
+Two non-obvious constraints when extending the font system:
+1. **dompdf's PHP-Font-Lib does not parse variable fonts** (`fvar`/`gvar` tables). Any new package must source **static TTF** files — Google Fonts' main repo ships variable fonts and produces empty boxes. Reliable static-TTF sources used today: `openmaptiles/fonts` for non-CJK Noto scripts, `life888888/cjk-fonts-ttf` for the CJK packages, `google/fonts/ofl/sarabun` for Thai.
+2. **dompdf does not glyph-fall-back through the `font-family` chain** — it uses the *first* font for ALL characters. So locale-specific packages must be the **primary** font for that locale, not a fallback. Selection happens in `FontService::getFontFamilyForLocale()`. This is also why a Latin-locale company with a Hebrew customer name will still render boxes for the Hebrew text — solving that needs Gotenberg or a custom mid-render font-switching pass.
 
-</laravel-boost-guidelines>
+Every downloadable file names a release or commit URL (never a branch) and a `sha256`; a download that does not match is refused, and a new package needs both. `pdf:fonts:install --all --path=<dir>` fetches packages ahead of time: an image that bakes them points `PDF_FONTS_PATH` at that directory (it must sit under the app directory, dompdf's chroot; `FontService` checks it before `storage/fonts/`) and sets `PDF_FONTS_DOWNLOAD=false`, which stops run-time and admin downloads.
+
+The bundled NotoSans is also surfaced as a `bundled: true` package entry (no download URL, files served from `resources/static/fonts/` instead of `storage/fonts/`) so it appears alongside the on-demand packages in the admin UI with a "Bundled" pill instead of an Install button.
+
+### Database
+Supports MySQL, PostgreSQL, and SQLite — **every migration and query must work on all three** (the test suite runs on SQLite `:memory:`); no vendor-specific SQL. Prefer Eloquent over raw queries. Use `Model::query()` instead of `DB::`. Use eager loading to prevent N+1 queries.
+
+**Migrations — foreign keys are `unsignedInteger`, never `foreignId()`.** Parent tables (`users`, `companies`, `currencies`, …) key on **INT UNSIGNED**, so every reference column must match that width: declare FKs as `$table->unsignedInteger('company_id')` plus an index. **Don't use `foreignId()`** — it's BIGINT, and a `foreignId()->constrained()` against an INT PK fails on MySQL 8 with error 3780 (type mismatch), which is exactly what breaks the v2→v3 upgrade.
+
+- **No DB-level FK constraints** for these refs — plain `unsignedInteger` columns + indexes; relationships and cascades are handled in app code, not via `->constrained()` / `cascadeOnDelete()`.
+- This is the codebase-wide convention (~27 migrations use `unsignedInteger`, only 2 use `foreignId()`). The one deliberate exception is `ai_messages.conversation_id`, which references the BIGINT `ai_conversations.id` and keeps `->constrained()->cascadeOnDelete()` — that cascade is intentional and covered by `AiChatFlowTest`.
+
+See PRs #618 / #683.
+
+### Service Pattern
+All business logic must live in Service classes (`app/Services/`), not in Models or Controllers. Controllers are thin — they authorize, call the service, and return a response. Models only contain relationships, scopes, accessors, mutators, and constants. Services are injected via constructor injection.
+
+### Testing (TDD)
+InvoiceShelf follows TDD development style:
+- **Feature tests** (`tests/Feature/`) — test API routes end-to-end (HTTP requests, responses, database assertions)
+- **Unit tests** (`tests/Unit/`) — test service classes and business logic in isolation
+- Write tests before or alongside implementation. Every new feature or bug fix must have tests.
+
+## Code Conventions
+
+- PHP: snake_case, constructor property promotion, explicit return types, PHPDoc blocks over inline comments
+- TS / Vue: camelCase, `<script setup lang="ts">`, prefer Composition API + Pinia stores over component-local state for anything cross-cutting
+- Always check sibling files for patterns before creating new ones
+- Use `config()` helper, never `env()` outside config files
+- Every change must have tests
+- Run `vendor/bin/pint --dirty --format agent` after modifying PHP files
+- After editing `lang/en.json` or any file under `resources/scripts/`, rebuild via `pnpm build` — the bundled chunks (including locale chunks) are content-hashed by Vite, so the browser will pick them up on hard refresh
+
+## Releasing
+
+Releases are cut by pushing a tag. Nothing is typed into GitHub by hand.
+
+```bash
+# 1. Add a "## <version> — <date>" section to CHANGELOG.md and bump version.md,
+#    in a PR like any other change — the notes are reviewed with the code.
+# 2. Once merged, tag the merge commit:
+git tag 3.0.0-alpha.2 && git push origin 3.0.0-alpha.2
+```
+
+`release.yaml` then runs the tests, reads the `CHANGELOG.md` section for that tag,
+builds the package with `make clean dist`, and creates a **draft** release with the
+zip attached. It stops there and prints the draft URL in the run summary.
+
+**You publish the draft yourself.** That is deliberate, not an omission: GitHub does
+not start workflow runs from events created with `GITHUB_TOKEN`, so a release
+published by the workflow reaches nothing downstream. Pressing Publish fires
+`release: published` under your own identity, which triggers `publish.yaml` to
+register the release on the updater and build the Docker images. **Until you
+publish, no install is offered anything.**
+
+Notes on the mechanics:
+
+- **A tag with no `CHANGELOG.md` section fails the run** before anything is built,
+  so a release can never go out with empty notes.
+- **`prerelease` and "mark as latest" are set on the draft**, derived from the tag: a
+  `-` suffix (`3.0.0-alpha.2`) means pre-release, which routes it to the **insider**
+  channel so ordinary installs are not offered it. "Latest" is gated on
+  `LATEST_MAJOR` in the workflows — bump it there when 3.x becomes the stable line.
+- **If registration fails**, re-run it without cutting a new release: run the
+  `Publish Release` workflow manually with `register_tag` set to the version.
+  That path is idempotent and does not rebuild the Docker images.
+- `.github/scripts/changelog-section.php <version>` prints what the updater will be
+  sent, so you can check the notes locally before tagging.
+
+**The mobile apps ride the same button.** `mobile.yaml` also listens for
+`release: published`, so publishing the draft builds the Android AAB and APK
+(and, separately gated, the iOS archive) from that tag, attaches the APK to the
+release and uploads to the internal store tracks. Each job is gated on a
+repository variable, `MOBILE_RELEASES_ENABLED` for Android and `MOBILE_IOS_ENABLED`
+for iOS, so until a platform's signing secrets exist its job is a no-op rather
+than a failure on every release. The
+variables, the secrets and how to produce each one are a top-to-bottom checklist
+in the Releasing section of `mobile/README.md`; the version numbers come from the
+tag via `mobile/scripts/version-code.mjs` and are never edited by hand.
+
+## CI Pipeline
+
+GitHub Actions (`check.yaml`): runs Pint style check, then runs Pest tests in parallel (`php artisan test --parallel`) on PHP 8.4 and 8.5 with Xdebug disabled (`coverage: none`). The test job does **not** build the frontend — the suite is API/JSON only and never renders the Vite blade, so no Node/Vite step is needed (release/docker workflows still build assets in their own jobs). When `docker/production/` changes, and on every push to 3.x, it also builds the production image and runs `docker/production/readonly-smoke.sh` on it: read-only root, `INVOICESHELF_DOTENV=false` (no `.env`; the entrypoint refuses to start without `APP_KEY` in the environment), managed mode, headless install. Anything that writes outside `storage/` and `bootstrap/cache` at boot or per request fails it; run it locally with `docker build -f docker/production/Dockerfile -t invoiceshelf:local . && docker/production/readonly-smoke.sh invoiceshelf:local`.

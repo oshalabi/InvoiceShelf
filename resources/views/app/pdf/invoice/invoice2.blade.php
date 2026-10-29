@@ -2,19 +2,14 @@
 <html>
 
 <head>
-    <title>@lang('pdf_invoice_label') - {{ $invoice->invoice_number }}</title>
+    <title>@lang($invoice->isCreditNote() ? 'pdf_credit_note_label' : 'pdf_invoice_label') - {{ $invoice->invoice_number }}</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+@include("app.pdf.partials.fonts")
+
     <style type="text/css">
         /* -- Base -- */
         body {
-            font-family: "DejaVu Sans";
-        }
-
-        html {
             margin: 0px;
-            padding: 0px;
-            margin-top: 50px;
-            margin-bottom: 25px;
         }
 
         table {
@@ -31,11 +26,11 @@
 
         .header-container {
             background: #7675ff;
-            position: absolute;
+            position: relative;
             width: 100%;
             height: 141px;
             left: 0px;
-            top: -60px;
+            top: 0px;
         }
 
         .header-section-left {
@@ -46,7 +41,7 @@
         }
 
         .header-logo {
-            padding-top: 45px;
+            padding-top: 35px;
             position: absolute;
             text-transform: capitalize;
             color: #fff;
@@ -56,7 +51,12 @@
         .header-section-right {
             display: inline-block;
             width: 35%;
+<<<<<<< HEAD
             padding: 20px 30px 20px 0px;
+=======
+            float: right;
+            padding: 10px 30px 20px 0px;
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
             text-align: right;
             color: white;
         }
@@ -96,14 +96,12 @@
 
         .content-wrapper {
             display: block;
-            margin-top: 60px;
             padding-bottom: 20px;
         }
 
         .address-container {
             display: block;
-            padding-top: 20px;
-            margin-top: 18px;
+            padding-top: 32px;
         }
 
         /* -- Company -- */
@@ -201,9 +199,23 @@
 
         /* -- Items Table -- */
 
+        /* The items table sets border-collapse: collapse, and padding does not
+           apply to a table in that mode. dompdf applies it anyway, Chromium
+           follows the spec and drops it, which put the two renderers 22.5pt
+           apart on each side. All of the table's spacing lives on this wrapper
+           instead -- a plain block, honoured identically by both. Padding rather
+           than margin so nothing collapses through it either. */
+        .items-table-wrapper {
+            padding-top: 35px;
+            padding-bottom: 10px;
+        }
+
+        .items-table-inset {
+            padding-left: 30px;
+            padding-right: 30px;
+        }
+
         .items-table {
-            margin-top: 35px;
-            padding: 0px 30px 10px 30px;
             page-break-before: avoid;
             page-break-after: auto;
         }
@@ -375,11 +387,26 @@
         .pl-0 {
             padding-left: 0;
         }
+<<<<<<< HEAD
+=======
+
+        /* The address formats emit <h3>{NAME}</h3> ahead of the <br>-joined
+           lines. Left to the user-agent default its margins differ between
+           dompdf and Chromium -- the construct where the two renderers drift
+           apart vertically -- and the extra top margin also pushes the company
+           column out of line with the Bill to / Ship to columns beside it.
+           Pinning both margins fixes the alignment and removes the divergence. */
+        .company-address h3,
+        .customer-address-container h3,
+        .billing-address h3,
+        .shipping-address h3 {
+            margin-top: 0;
+            margin-bottom: 6px;
+        }
+
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
     </style>
 
-    @if (App::isLocale('th'))
-        @include('app.pdf.locale.th')
-    @endif
 </head>
 
 <body>
@@ -388,8 +415,12 @@
             <tr>
                 <td width="60%" class="header-section-left">
                     @if ($logo)
+<<<<<<< HEAD
                         <img class="header-logo" style="height:50px" src="{{ \App\Space\ImageUtils::toBase64Src($logo) }}"
                             alt="Company Logo">
+=======
+                        <img class="header-logo" style="height:50px" src="{{ \App\Platform\Pdf\Rendering\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
+>>>>>>> c8d10f76891c4efdecb71c04b49109e8f67f8e7c
                     @elseif ($invoice->customer->company)
                         <h1 class="header-logo" style="padding-top: 0px;">
                             {{ $invoice->customer->company->name }}
@@ -398,9 +429,10 @@
                 </td>
 
                 <td width="40%" class="header-section-right invoice-details-container">
-                    <h1>@lang('pdf_invoice_label')</h1>
+                    <h1>@lang($invoice->isCreditNote() ? 'pdf_credit_note_label' : 'pdf_invoice_label')</h1>
                     <h4>{{ $invoice->invoice_number }}</h4>
                     <h4>{{ $invoice->formattedInvoiceDate }}</h4>
+                    @include('app.pdf.partials.document-custom-fields-stacked', ['document' => $invoice])
                 </td>
             </tr>
         </table>
@@ -409,6 +441,8 @@
     <hr>
 
     <div class="content-wrapper">
+        @include('app.pdf.partials.credit-note-banner')
+
         <div class="address-container">
             <div class="company-address-container company-address">
                 {!! $company_address !!}
@@ -432,7 +466,9 @@
             <div style="clear: both;"></div>
         </div>
 
-        @include('app.pdf.invoice.partials.table')
+        <div class="items-table-wrapper">
+            @include('app.pdf.invoice.partials.table')
+        </div>
 
         <div class="notes">
             @if ($notes)

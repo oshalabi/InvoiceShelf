@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Address;
-use App\Models\Customer;
+use App\Domains\Contacts\Models\Address;
+use App\Domains\Contacts\Models\Customer;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

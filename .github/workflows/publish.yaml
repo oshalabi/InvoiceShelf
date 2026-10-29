@@ -1,0 +1,339 @@
+name: Publish Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      register_tag:
+        description: 'Release tag to (re-)register on the updater, e.g. 2.4.2.'
+        required: false
+      docker_dry_run:
+        description: 'Build both architecture images from this branch without pushing or tagging anything, to measure build time.'
+        type: boolean
+        default: false
+
+# Single source of truth for which major owns the moving stable tags
+# (:latest, :{major}, :{major}.{minor}) and the temporary :nightly alias.
+# Bump to "3" on BOTH the 2.x and 3.x branches when 3.0.0 GA is tagged, and
+# drop the :nightly alias tag at the same time (end of the deprecation window).
+env:
+  LATEST_MAJOR: "2"
+
+jobs:
+  # Registration lives in its own job, and fetches the published asset rather than
+  # reusing the build job's working directory. That decoupling is deliberate: the
+  # previous in-line step read `changelog.txt` relative to the checkout while writing
+  # it to /tmp, and the mismatch was undetectable until a real release ran. As its own
+  # job it can also be re-run on demand for an existing tag, so a failure here no longer
+  # requires production shell access to repair. Idempotent per version — the endpoint
+  # upserts. Release fields are passed via env (not inline ${{ }}) to avoid shell
+  # injection from the release body.
+  register_release:
+    name: 📡 Register release on the updater
+    # release.yaml attaches the package before publishing, so by the time this
+    # runs the asset is already there and no build dependency is needed. That also
+    # retires the always() dance this condition previously required to survive a
+    # skipped build job on a manual dispatch.
+    if: github.event_name == 'release' || inputs.register_tag != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve the tag being registered
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.register_tag }}
+        run: |
+          if [ "$EVENT" = "release" ]; then TAG="$RELEASE_TAG"; else TAG="$INPUT_TAG"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # config/installer.php is read at the tag being registered, not at HEAD, so a
+      # re-registration reports the requirements that release actually shipped with.
+      - name: Checkout code at that tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          coverage: none
+
+      - name: Download the published release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p InvoiceShelf.zip --clobber
+
+      - name: Register on the updater
+        id: register
+        env:
+          CI_RELEASE_TOKEN: ${{ secrets.WEBSITE_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if [ -z "$CI_RELEASE_TOKEN" ]; then
+            # A release that silently skips registration looks entirely successful while
+            # reaching nobody, so on a real release this is fatal. A manual dispatch
+            # without the secret is legitimate, so warn there instead.
+            if [ "$EVENT" = "release" ]; then
+              echo "::error::WEBSITE_RELEASE_TOKEN is not set — $TAG would never be offered to installs."
+              exit 1
+            fi
+            echo "::warning::WEBSITE_RELEASE_TOKEN not set — skipping updater registration for $TAG"
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "registered=true" >> "$GITHUB_OUTPUT"
+
+          # A Laravel config file may call env(), which plain PHP lacks (3.0.0-alpha.5
+          # added one), so a stand-in answers with the default.
+          MIN_PHP=$(php -r 'function env($k, $d = null) { return $d; } $c = require "config/installer.php"; echo $c["core"]["minPhpVersion"] ?? "";')
+          EXTS=$(php -r 'function env($k, $d = null) { return $d; } $c = require "config/installer.php"; echo implode(", ", $c["requirements"]["php"] ?? []);')
+
+          # CHANGELOG.md is the source: it is written and reviewed alongside the
+          # change itself, so what installs are offered cannot drift from what was
+          # merged. A release with no section fails here rather than registering an
+          # empty changelog — except on a manual dispatch, where re-registering a
+          # release older than the file is legitimate and the GitHub body stands in.
+          if php .github/scripts/changelog-section.php "$TAG" > /tmp/changelog.txt; then
+            echo "Using the CHANGELOG.md section for $TAG"
+          elif [ "$EVENT" = "release" ]; then
+            echo "::error::No CHANGELOG.md section for $TAG — add one and re-run this job."
+            exit 1
+          else
+            echo "::warning::No CHANGELOG.md section for $TAG — falling back to the release body."
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' > /tmp/changelog.txt
+          fi
+          # The pre-release flag and timestamp come from the release itself, so this
+          # behaves identically whether triggered by a publish or re-run by hand.
+          PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')
+          PUBLISHED=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json publishedAt --jq '.publishedAt')
+
+          case "$TAG" in
+            *-*) CHANNEL=insider ;;
+            *)   [ "$PRERELEASE" = "true" ] && CHANNEL=insider || CHANNEL=stable ;;
+          esac
+
+          echo "Registering $TAG (channel=$CHANNEL, min_php=$MIN_PHP) on the updater"
+          curl -fsS --retry 3 --retry-delay 5 -X POST https://invoiceshelf.com/api/releases \
+            -H "Authorization: Bearer $CI_RELEASE_TOKEN" \
+            -F "version=$TAG" \
+            -F "channel=$CHANNEL" \
+            -F "released_at=$PUBLISHED" \
+            -F "min_php_version=$MIN_PHP" \
+            -F "extensions=$EXTS" \
+            -F "changelog=</tmp/changelog.txt" \
+            -F "description=</tmp/changelog.txt" \
+            -F "release_file=@InvoiceShelf.zip"
+
+      # Posting a 2xx is not proof an install can actually fetch the release. This
+      # endpoint 404s unless the Release row exists AND its zip is retrievable from
+      # storage, so it verifies the whole chain — and would have caught the failure
+      # this job was rewritten for.
+      - name: Verify the release is being served
+        if: steps.register.outputs.registered == 'true'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if ! curl -fsI --retry 3 --retry-delay 5 "https://invoiceshelf.com/releases/download/$TAG" > /dev/null; then
+            echo "::error::$TAG was accepted by the updater but is not being served — installs will not receive it."
+            exit 1
+          fi
+          echo "$TAG is registered and downloadable."
+
+  # Both architecture builds need this check, and it must run once rather than
+  # per matrix leg, so it is its own job and they depend on it.
+  docker_guard:
+    name: 🔒 Release provenance
+    if: github.event_name == 'release' || inputs.docker_dry_run
+    runs-on: ubuntu-latest
+    steps:
+      # Releases are cut by pushing a tag: release.yaml runs the tests, builds the
+      # package and attaches it to a draft. A release without that package was made
+      # by hand and has been through none of it, so it does not get images. The
+      # updater is already protected — registration downloads this same asset and
+      # fails without it.
+      - name: Refuse a release that did not come from the pipeline
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+               | grep -qx 'InvoiceShelf.zip'; then
+            echo "::error::$TAG has no InvoiceShelf.zip. Releases are cut by pushing a tag, not created by hand — see the Releasing section in AGENTS.md."
+            exit 1
+          fi
+
+  # One job per architecture, each on a runner of that architecture. Building both
+  # platforms on one amd64 runner meant the arm64 half compiled every PHP extension
+  # under QEMU: `install-php-extensions intl` alone took 272 seconds there, against
+  # seconds natively, and the whole job ran 18 to 23 minutes. arm64 runners are free
+  # and unlimited on public repositories.
+  #
+  # Neither job tags anything. Each pushes its image by digest, and the manifest that
+  # carries the tags is assembled once, below, because a tag belongs to the manifest
+  # rather than to either architecture.
+  release_docker_build:
+    name: 🐳 Build ${{ matrix.platform }}
+    needs: docker_guard
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Name this platform for artifacts
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_SLUG=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # Labels only. The tag rules live in the manifest job.
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: invoiceshelf/invoiceshelf
+
+      # A dry run exports nothing, so it can be dispatched from a branch to measure
+      # build time without publishing anything, taggged or untagged.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/production/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: ${{ github.event_name == 'release' && 'type=image,name=invoiceshelf/invoiceshelf,push-by-digest=true,name-canonical=true,push=true' || 'type=cacheonly' }}
+          # Scoped per platform, or the two jobs overwrite each other's cache.
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          secrets: |
+            composer_auth={"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}
+
+      - name: Export the digest
+        if: github.event_name == 'release'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload the digest
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ env.PLATFORM_SLUG }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The tags, and the only place they are decided. Unchanged from when this was one
+  # job: a manifest referencing both digests is published under each tag, on Docker
+  # Hub and on GHCR. The images are built and pushed to Docker Hub only; imagetools
+  # copies them to GHCR when it writes the tags there. GHCR has none of Docker Hub's
+  # anonymous pull limits, which matter to anything that polls for new tags.
+  release_docker_manifest:
+    name: 🐳 Publish the multi-architecture tags
+    needs: release_docker_build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@v5
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            invoiceshelf/invoiceshelf
+            ghcr.io/invoiceshelf/invoiceshelf
+          # Pre-release semver (e.g. 3.0.0-beta.1) automatically gets ONLY the exact
+          # {{version}} tag — metadata-action withholds {{major}} / {{major}}.{{minor}}.
+          # The moving stable tags (:latest, etc.) are gated on LATEST_MAJOR so a 2.x
+          # patch can never steal :latest from 3.x after the GA flip, and vice-versa.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') && startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+            # Scoped by line, or a pre-release on one line silently takes the
+            # other's alias: 2.4.3-beta.1 claimed :next from 3.0.0-alpha.1, moving
+            # anyone tracking the next major back onto a 2.x image. :beta is the
+            # stable line's pre-release, :next the newer major's — both gated on
+            # LATEST_MAJOR, exactly as :latest is.
+            type=raw,value=beta,enable=${{ contains(github.ref_name, '-beta') && startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+            type=raw,value=next,enable=${{ contains(github.ref_name, '-') && !startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+            # DEPRECATED transitional alias: keeps existing :nightly deployments converging
+            # onto stable until they migrate. Remove this line at the 3.0.0 GA flip.
+            type=raw,value=nightly,enable=${{ !contains(github.ref_name, '-') && startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+
+      - name: Create the manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'invoiceshelf/invoiceshelf@sha256:%s ' *)
+
+      # Proof that both architectures actually made it into the published tag on each
+      # registry, which a per-architecture build can otherwise get wrong silently.
+      - name: Verify both architectures are published
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          for image in invoiceshelf/invoiceshelf ghcr.io/invoiceshelf/invoiceshelf; do
+            docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' > /tmp/manifest.json
+            for arch in amd64 arm64; do
+              if ! jq -e --arg a "$arch" '.manifests[]? | select(.platform.architecture == $a)' /tmp/manifest.json > /dev/null; then
+                echo "::error::$image:$VERSION has no $arch image."
+                exit 1
+              fi
+            done
+          done
+          echo "$VERSION publishes amd64 and arm64 on Docker Hub and GHCR."

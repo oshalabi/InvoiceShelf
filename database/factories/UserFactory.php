@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Money\Models\Currency;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 

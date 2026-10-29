@@ -1,10 +1,10 @@
 <?php
 
-use App\Models\Estimate;
-use App\Models\EstimateItem;
-use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\Tax;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\EstimateItem;
+use App\Domains\Sales\Models\Invoice;
+use App\Domains\Sales\Models\InvoiceItem;
+use App\Domains\Taxation\Models\Tax;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

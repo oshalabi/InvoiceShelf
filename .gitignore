@@ -3,6 +3,8 @@
 /public/storage
 /public/hot
 /public/build
+/mobile/www
+/mobile/node_modules
 /storage/*.key
 /vendor
 /.idea
@@ -24,6 +26,25 @@ Homestead.yaml
 .devenvconfig
 /storage/fonts*
 package-lock.json
+yarn.lock
 /docker/development/docker-compose.yml
 /docker/production/docker-compose.yml
 /docker-compose.yaml
+
+# Agent docs: AGENTS.md is the canonical, committed source of truth.
+# The per-tool files are local symlinks to it — `composer run ai-docs` creates them.
+/CLAUDE.md
+/GEMINI.md
+/.github/copilot-instructions.md
+/.cursor/
+/.claude/
+
+# Generated IDE metadata belongs to each developer's local environment.
+/.phpstorm.meta.php
+/_ide_helper.php
+/_ide_helper_models.php
+/*.code-workspace
+
+# Browser-verification scratch: playwright-cli writes snapshots, screenshots
+# and console logs next to wherever it was invoked.
+/.playwright-cli/

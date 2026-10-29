@@ -5,17 +5,12 @@
     <title>@lang('pdf_payment_label') - {{ $payment->payment_number }}</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 
+@include("app.pdf.partials.fonts")
+
     <style type="text/css">
         /* -- Base -- */
         body {
-            font-family: "DejaVu Sans";
-        }
-
-        html {
             margin: 0px;
-            padding: 0px;
-            margin-top: 50px;
-            margin-bottom: 50px;
         }
 
         table {
@@ -33,7 +28,7 @@
         .header-container {
             /* position: absolute; */
             width: 100%;
-            padding: 0 30px;
+            padding: 50px 30px 0px;
             margin-bottom: 50px;
             /* height: 150px;
             left: 0px;
@@ -275,11 +270,22 @@
             margin-left: 150px;
         }
 
+        /* The address formats emit <h3>{NAME}</h3> ahead of the <br>-joined
+           lines. Left to the user-agent default its margins differ between
+           dompdf and Chromium -- the construct where the two renderers drift
+           apart vertically -- and the extra top margin also pushes the company
+           column out of line with the Bill to / Ship to columns beside it.
+           Pinning both margins fixes the alignment and removes the divergence. */
+        .company-address h3,
+        .customer-address-container h3,
+        .billing-address h3,
+        .shipping-address h3 {
+            margin-top: 0;
+            margin-bottom: 6px;
+        }
+
     </style>
 
-    @if (App::isLocale('th'))
-        @include('app.pdf.locale.th')
-    @endif
 </head>
 
 <body>
@@ -288,7 +294,7 @@
             <tr>
                 @if ($logo)
                     <td width="50%" class="header-section-left">
-                        <img style="height:50px" class="header-logo" src="{{ \App\Space\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
+                        <img style="height:50px" class="header-logo" src="{{ \App\Platform\Pdf\Rendering\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
                     @else
                         @if ($payment->customer)
                     <td class="header-section-left" style="padding-top:0px;">
@@ -338,14 +344,23 @@
                         <td class="attribute-value">
                             &nbsp;{{ $payment->paymentMethod ? $payment->paymentMethod->name : '-' }}</td>
                     </tr>
-                    @if ($payment->invoice && $payment->invoice->invoice_number)
+                    @foreach ($payment->allocations as $allocation)
+                        @if ($allocation->invoice && $allocation->invoice->invoice_number)
+                            <tr>
+                                <td class="attribute-label">@lang('pdf_invoice_label')</td>
+                                <td class="attribute-value"> &nbsp;{{ $allocation->invoice->invoice_number }}</td>
+                            </tr>
+                            <tr>
+                                <td class="attribute-label">@lang('customers.applied')</td>
+                                <td class="attribute-value"> &nbsp;{!! format_money_pdf($allocation->amount, $allocation->invoice->currency) !!}</td>
+                            </tr>
+                        @endif
+                    @endforeach
+                    @php($unallocatedAmount = (int) $payment->amount - (int) $payment->allocations->sum('amount'))
+                    @if ($unallocatedAmount > 0)
                         <tr>
-                            <td class="attribute-label">@lang('pdf_invoice_label')</td>
-                            <td class="attribute-value"> &nbsp;{{ $payment->invoice->invoice_number }}</td>
-                        </tr>
-                        <tr>
-                            <td class="attribute-label">Invoice Amount</td>
-                            <td class="attribute-value"> &nbsp;{!! format_money_pdf($payment->invoice->total, $payment->invoice->currency) !!}</td>
+                            <td class="attribute-label">@lang('unapplied_credit')</td>
+                            <td class="attribute-value"> &nbsp;{!! format_money_pdf($unallocatedAmount, $payment->customer->currency) !!}</td>
                         </tr>
                     @endif
                 </table>
@@ -356,12 +371,6 @@
     <div class="total-display-box">
         <p class="total-display-label">@lang('pdf_payment_amount_received_label')</p>
         <span class="amount">{!! format_money_pdf($payment->amount, $payment->customer->currency) !!}</span>
-        @if ($payment->invoice && $payment->invoice->invoice_number)
-            <br><p class="total-display-label">Balance Due</p>
-            <span class="amount">{!! $payment->invoice->formattedDueAmount !!}</span>
-            <br><p class="total-display-label">Invoice Status</p>
-            <span class="amount">{{ str_replace('_', ' ', optional($payment->invoice)->paid_status ?? optional($payment->invoice)->status) }}</span>
-        @endif
     </div>
     <div class="notes">
         @if ($notes)

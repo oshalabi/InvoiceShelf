@@ -508,6 +508,12 @@ setup_environment() {
     if [ "$use_gotenberg" = "yes" ]; then
         compose_file="docker/development/docker-compose.${db_type}.gotenberg.yml"
         print_success "Using Gotenberg-enabled compose file"
+        # The compose file sets PDF_DRIVER, GOTENBERG_HOST and
+        # GOTENBERG_ALLOWED_PRIVATE_HOST on the php-fpm service, so the sidecar
+        # works with no .env editing. Say so, because the last one exists to let
+        # a private host past the SSRF guard and that is worth knowing about.
+        print_info "PDF driver preconfigured: gotenberg via http://pdf:3000" >&2
+        print_info "The compose file exempts that host from the SSRF guard (GOTENBERG_ALLOWED_PRIVATE_HOST)." >&2
     else
         compose_file="docker/development/docker-compose.${db_type}.yml"
         print_success "Using standard compose file"

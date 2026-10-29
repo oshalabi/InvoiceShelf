@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\Estimate;
-use App\Models\EstimateItem;
-use App\Models\Item;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Sales\Models\Estimate;
+use App\Domains\Sales\Models\EstimateItem;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

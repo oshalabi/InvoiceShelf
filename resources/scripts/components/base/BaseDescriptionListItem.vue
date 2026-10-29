@@ -1,37 +1,34 @@
+<script setup lang="ts">
+interface Props {
+  label: string
+  value?: string | number
+  contentLoading?: boolean
+}
+
+withDefaults(defineProps<Props>(), {
+  value: '',
+  contentLoading: false,
+})
+</script>
+
 <template>
-  <div>
+  <div class="min-w-0">
     <BaseContentPlaceholders v-if="contentLoading">
       <BaseContentPlaceholdersBox class="w-20 h-5 mb-1" />
       <BaseContentPlaceholdersBox class="w-40 h-5" />
     </BaseContentPlaceholders>
 
-    <div v-else>
-      <BaseLabel class="font-normal mb-1">
+    <template v-else>
+      <p class="mb-1 text-sm text-muted">
         {{ label }}
-      </BaseLabel>
+      </p>
 
-      <p class="text-sm font-bold leading-5 text-black non-italic">
-        {{ value }}
+      <!-- Isolated: an email or phone number keeps its order in right-to-left text -->
+      <div class="text-sm font-medium leading-5 break-words text-heading">
+        <bdi>{{ value }}</bdi>
 
         <slot />
-      </p>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
-
-<script setup>
-const props = defineProps({
-  label: {
-    type: String,
-    required: true,
-  },
-  value: {
-    type: [String, Number],
-    default: '',
-  },
-  contentLoading: {
-    type: Boolean,
-    default: false,
-  },
-})
-</script>

@@ -1,0 +1,359 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import groupBy from 'lodash/groupBy'
+import { bootstrapService } from '@/scripts/api/services/bootstrap.service'
+import type { MenuItem, BootstrapResponse } from '@/scripts/api/services/bootstrap.service'
+import { settingService } from '@/scripts/api/services/setting.service'
+import type {
+  DateFormat,
+  TimeFormat,
+  ConfigResponse,
+  GlobalSettingsPayload,
+  NumberPlaceholdersParams,
+  NumberPlaceholder,
+} from '@/scripts/api/services/setting.service'
+import { useCompanyStore } from './company.store'
+import { useInboxStore } from './inbox.store'
+import { useUserStore } from './user.store'
+import { useNotificationStore } from './notification.store'
+import { handleApiError } from '../utils/error-handling'
+import * as localStore from '../utils/local-storage'
+import type { Currency } from '@/scripts/types/domain/currency'
+import type { Country } from '@/scripts/types/domain/customer'
+import { emitBootstrapCompleted } from '@/scripts/extensions/runtime'
+
+export const useGlobalStore = defineStore('global', () => {
+  // State
+  const config = ref<Record<string, unknown> | null>(null)
+  const globalSettings = ref<Record<string, string> | null>(null)
+
+  const timeZones = ref<Array<{ key: string; value: string }>>([])
+  const dateFormats = ref<DateFormat[]>([])
+  const timeFormats = ref<TimeFormat[]>([])
+  const currencies = ref<Currency[]>([])
+  const countries = ref<Country[]>([])
+  const languages = ref<Array<{ code: string; name: string }>>([])
+  const fiscalYears = ref<Array<{ key: string; value: string }>>([])
+  const unitCodes = ref<Array<{ key: string; value: string }>>([])
+
+  const mainMenu = ref<MenuItem[]>([])
+  const settingMenu = ref<MenuItem[]>([])
+  const userMenu = ref<Array<{ title: string; link: string; icon: string; name: string }>>([])
+  const isAppLoaded = ref<boolean>(false)
+  // On phones the navigation lives in the More sheet; this is its open state.
+  const isSidebarOpen = ref<boolean>(false)
+  const isSidebarCollapsed = ref<boolean>(localStore.getBoolean('sidebarCollapsed'))
+  const isSearchOpen = ref<boolean>(false)
+  // Pages with a sticky bottom action bar (editors, document views) register it
+  // here so the phone tab bar steps aside while they are mounted.
+  const actionBarCount = ref<number>(0)
+  const areCurrenciesLoading = ref<boolean>(false)
+
+  const downloadReport = ref<(() => void) | null>(null)
+
+  // Getters
+  // Groups keep the order the server sent them in (the core groups as configured,
+  // then module groups in registration order); priority only orders entries
+  // inside a group, so a module entry with a low priority cannot lift its whole
+  // group above the core ones.
+  const menuGroups = computed<MenuItem[][]>(() => {
+    const groups = groupBy(mainMenu.value, 'group')
+    return Object.values(groups).map((items) =>
+      [...items].sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100))
+    )
+  })
+
+  // Actions
+  async function bootstrap(options?: { adminMode?: boolean }): Promise<BootstrapResponse> {
+    const companyStore = useCompanyStore()
+    const userStore = useUserStore()
+
+    try {
+      const shouldUseAdminBootstrap = options?.adminMode ?? companyStore.isAdminMode
+      const response = await bootstrapService.bootstrap(shouldUseAdminBootstrap)
+
+      mainMenu.value = response.main_menu
+      settingMenu.value = response.setting_menu
+      userMenu.value = response.user_menu ?? []
+      config.value = response.config
+      globalSettings.value = response.global_settings
+
+      // user store
+      userStore.currentUser = response.current_user
+      userStore.currentUserSettings = response.current_user_settings
+      userStore.currentAbilities = response.current_user_abilities
+
+      // Sync user form with bootstrap data
+      if (response.current_user) {
+        userStore.userForm = {
+          name: response.current_user.name ?? '',
+          email: response.current_user.email ?? '',
+          password: '',
+          confirm_password: '',
+          language: response.current_user_settings?.language ?? '',
+        }
+      }
+
+      // company store
+      companyStore.companies = response.companies
+
+      if (response.admin_mode === true) {
+        companyStore.setAdminMode(true)
+        companyStore.setSelectedCompany(null)
+        companyStore.selectedCompanySettings = {}
+        companyStore.selectedCompanyCurrency = null
+      } else if (response.current_company) {
+        companyStore.setAdminMode(false)
+        companyStore.setSelectedCompany(response.current_company)
+        companyStore.selectedCompanySettings = response.current_company_settings
+        companyStore.selectedCompanyCurrency = response.current_company_currency
+      } else {
+        companyStore.setAdminMode(false)
+        companyStore.setSelectedCompany(null)
+        companyStore.selectedCompanySettings = {}
+        companyStore.selectedCompanyCurrency = null
+      }
+
+      useInboxStore().setAnnouncements(response.announcements ?? [])
+
+      isAppLoaded.value = true
+
+      // Load UI language: user preference > company setting > English
+      // 'default' means "use company language"
+      const userLang = userStore.currentUserSettings.language
+      const uiLanguage =
+        (userLang && userLang !== 'default' ? userLang : '') ||
+        (response.current_company_settings as Record<string, string>)?.language ||
+        'en'
+      await window.loadLanguage?.(uiLanguage)
+
+      emitBootstrapCompleted({
+        adminMode: response.admin_mode === true,
+        companyId: response.current_company?.id ?? null,
+      })
+
+      return response
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchCurrencies(): Promise<Currency[]> {
+    if (currencies.value.length || areCurrenciesLoading.value) {
+      return currencies.value
+    }
+
+    areCurrenciesLoading.value = true
+
+    try {
+      const response = await settingService.getCurrencies()
+      currencies.value = response.data.map((currency) => ({
+        ...currency,
+        name: `${currency.code} - ${currency.name}`,
+      }))
+      areCurrenciesLoading.value = false
+      return currencies.value
+    } catch (err: unknown) {
+      areCurrenciesLoading.value = false
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchConfig(params?: Record<string, string>): Promise<ConfigResponse> {
+    try {
+      const response = await settingService.getConfig(params)
+
+      if ((response as Record<string, unknown>).languages) {
+        languages.value = (response as Record<string, unknown>).languages as Array<{
+          code: string
+          name: string
+        }>
+      } else if ((response as Record<string, unknown>).fiscal_years) {
+        fiscalYears.value = (response as Record<string, unknown>).fiscal_years as Array<{
+          key: string
+          value: string
+        }>
+      } else if ((response as Record<string, unknown>).unit_codes) {
+        unitCodes.value = (response as Record<string, unknown>).unit_codes as Array<{
+          key: string
+          value: string
+        }>
+      }
+
+      return response
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchDateFormats(): Promise<DateFormat[]> {
+    if (dateFormats.value.length) {
+      return dateFormats.value
+    }
+
+    try {
+      const response = await settingService.getDateFormats()
+      dateFormats.value = response.date_formats
+      return dateFormats.value
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchTimeFormats(): Promise<TimeFormat[]> {
+    if (timeFormats.value.length) {
+      return timeFormats.value
+    }
+
+    try {
+      const response = await settingService.getTimeFormats()
+      timeFormats.value = response.time_formats
+      return timeFormats.value
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchTimeZones(): Promise<Array<{ key: string; value: string }>> {
+    if (timeZones.value.length) {
+      return timeZones.value
+    }
+
+    try {
+      const response = await settingService.getTimezones()
+      timeZones.value = response.time_zones
+      return timeZones.value
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchCountries(): Promise<Country[]> {
+    if (countries.value.length) {
+      return countries.value
+    }
+
+    try {
+      const response = await settingService.getCountries()
+      countries.value = response.data
+      return countries.value
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  async function fetchPlaceholders(
+    params: NumberPlaceholdersParams
+  ): Promise<{ placeholders: NumberPlaceholder[] }> {
+    try {
+      return await settingService.getNumberPlaceholders(params)
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  function setSidebarVisibility(val: boolean): void {
+    isSidebarOpen.value = val
+  }
+
+  function setSearchOpen(val: boolean): void {
+    isSearchOpen.value = val
+  }
+
+  function registerActionBar(): () => void {
+    actionBarCount.value++
+    let released = false
+
+    return () => {
+      if (!released) {
+        released = true
+        actionBarCount.value--
+      }
+    }
+  }
+
+  function toggleSidebarCollapse(): void {
+    isSidebarCollapsed.value = !isSidebarCollapsed.value
+    localStore.set('sidebarCollapsed', isSidebarCollapsed.value)
+  }
+
+  function setIsAppLoaded(loaded: boolean): void {
+    isAppLoaded.value = loaded
+  }
+
+  async function updateGlobalSettings(params: {
+    data: GlobalSettingsPayload
+    message?: string
+  }): Promise<void> {
+    try {
+      await settingService.updateGlobalSettings(params.data)
+
+      if (globalSettings.value) {
+        Object.assign(
+          globalSettings.value,
+          params.data.settings
+        )
+      }
+
+      if (params.message) {
+        const notificationStore = useNotificationStore()
+        notificationStore.showNotification({
+          type: 'success',
+          message: params.message,
+        })
+      }
+    } catch (err: unknown) {
+      handleApiError(err)
+      throw err
+    }
+  }
+
+  return {
+    // State
+    config,
+    globalSettings,
+    timeZones,
+    dateFormats,
+    timeFormats,
+    currencies,
+    countries,
+    languages,
+    fiscalYears,
+    unitCodes,
+    mainMenu,
+    settingMenu,
+    userMenu,
+    isAppLoaded,
+    isSidebarOpen,
+    isSidebarCollapsed,
+    isSearchOpen,
+    actionBarCount,
+    areCurrenciesLoading,
+    downloadReport,
+    // Getters
+    menuGroups,
+    // Actions
+    bootstrap,
+    fetchCurrencies,
+    fetchConfig,
+    fetchDateFormats,
+    fetchTimeFormats,
+    fetchTimeZones,
+    fetchCountries,
+    fetchPlaceholders,
+    setSidebarVisibility,
+    setSearchOpen,
+    registerActionBar,
+    toggleSidebarCollapse,
+    setIsAppLoaded,
+    updateGlobalSettings,
+  }
+})

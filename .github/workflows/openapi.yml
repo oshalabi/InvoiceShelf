@@ -1,0 +1,84 @@
+name: Export OpenAPI Spec
+
+# Regenerates public/openapi.json with Scramble and notifies the api-docs site
+# (api-docs.invoiceshelf.com) to rebuild. Runs on every published release — so the
+# committed spec matches released code — and can be triggered manually.
+#
+# v3 only: this lives on the 3.x branch. The api-docs site documents the v3 API.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    name: Export & publish OpenAPI document
+    runs-on: ubuntu-latest
+    env:
+      extensions: bcmath, curl, dom, gd, json, libxml, mbstring, pcntl, pdo, pdo_sqlite, zip
+    steps:
+      - name: Checkout (release branch)
+        uses: actions/checkout@v6
+        with:
+          # On a release, target_commitish is the branch the tag was cut from, so
+          # the spec is committed back to a branch rather than a detached tag.
+          ref: ${{ github.event.release.target_commitish || github.ref_name }}
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: ${{ env.extensions }}
+          coverage: none
+          tools: composer
+
+      - name: Install Composer dependencies (incl. dev — Scramble is dev-only)
+        uses: ramsey/composer-install@4.0.0
+
+      - name: Prepare app environment
+        run: |
+          cp -n .env.example .env || true
+          php artisan key:generate
+
+      - name: Migrate a throwaway SQLite database
+        # Scramble introspects the schema to build response shapes, so the tables
+        # must exist. Data is irrelevant — schema only.
+        run: |
+          mkdir -p database
+          : > database/openapi.sqlite
+          php artisan migrate --force --no-interaction
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ${{ github.workspace }}/database/openapi.sqlite
+
+      - name: Export OpenAPI document
+        run: php artisan scramble:export --path=public/openapi.json
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ${{ github.workspace }}/database/openapi.sqlite
+
+      - name: Commit updated spec
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: regenerate OpenAPI spec [skip ci]"
+          file_pattern: public/openapi.json
+          commit_user_name: "GitHub Actions"
+          commit_user_email: "actions@github.com"
+
+      - name: Notify api-docs site to rebuild
+        continue-on-error: true
+        env:
+          PAT: ${{ secrets.API_DOCS_DISPATCH_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "No API_DOCS_DISPATCH_PAT secret set; skipping rebuild notification."
+            exit 0
+          fi
+          curl -sf -X POST \
+            -H "Authorization: token $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/InvoiceShelf/api-docs/dispatches \
+            -d '{"event_type":"spec-updated"}'

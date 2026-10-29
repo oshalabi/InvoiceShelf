@@ -1,10 +1,11 @@
 <?php
 
-use App\Http\Controllers\V1\Admin\Item\ItemsController;
-use App\Http\Requests\ItemsRequest;
-use App\Models\Item;
-use App\Models\Tax;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Catalog\Http\Controllers\ItemsController;
+use App\Domains\Catalog\Http\Requests\ItemsRequest;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Taxation\Models\Tax;
+use App\Domains\Taxation\Models\TaxType;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
 
@@ -30,6 +31,28 @@ test('get items', function () {
     $response = getJson('api/v1/items?page=1');
 
     $response->assertOk();
+});
+
+test('item metadata only exposes sales tax types', function () {
+    $companyId = User::find(1)->companies()->first()->id;
+    $salesTaxType = TaxType::factory()->create([
+        'company_id' => $companyId,
+        'transaction_type' => TaxType::TRANSACTION_TYPE_SALES,
+    ]);
+    $purchaseTaxType = TaxType::factory()->create([
+        'company_id' => $companyId,
+        'transaction_type' => TaxType::TRANSACTION_TYPE_PURCHASES,
+    ]);
+
+    $taxTypeIds = collect(
+        getJson('api/v1/items?page=1')
+            ->assertOk()
+            ->json('meta.tax_types')
+    )->pluck('id');
+
+    expect($taxTypeIds)
+        ->toContain($salesTaxType->id)
+        ->not->toContain($purchaseTaxType->id);
 });
 
 test('create item', function () {

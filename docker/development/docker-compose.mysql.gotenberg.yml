@@ -8,6 +8,13 @@ services:
         - UID=${USRID:-1000}
         - GID=${GRPID:-1000}
       target: development
+    environment:
+      # Gotenberg runs as the `pdf` service below, on this compose network, so
+      # its host resolves to a private address. PrivateNetworkGuard rejects those
+      # by default — naming the exact host is what exempts it, and only it.
+      - PDF_DRIVER=gotenberg
+      - GOTENBERG_HOST=http://pdf:3000
+      - GOTENBERG_ALLOWED_PRIVATE_HOST=http://pdf:3000
     volumes:
       - ../../:/var/www/html
     networks:
@@ -68,7 +75,7 @@ services:
       - invoiceshelf-dev
 
   pdf:
-    image: gotenberg/gotenberg:8
+    image: gotenberg/gotenberg:8.37.0
     networks:
       - invoiceshelf-dev
 networks:

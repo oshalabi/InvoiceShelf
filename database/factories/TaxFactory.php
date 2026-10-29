@@ -2,10 +2,10 @@
 
 namespace Database\Factories;
 
-use App\Models\Currency;
-use App\Models\Tax;
-use App\Models\TaxType;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Money\Models\Currency;
+use App\Domains\Taxation\Models\Tax;
+use App\Domains\Taxation\Models\TaxType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class TaxFactory extends Factory
@@ -32,7 +32,7 @@ class TaxFactory extends Factory
             },
             'company_id' => User::find(1)->companies()->first()->id,
             'amount' => $this->faker->randomDigitNotNull(),
-            'compound_tax' => $this->faker->randomDigitNotNull(),
+            'compound_tax' => false,
             'base_amount' => $this->faker->randomDigitNotNull(),
             'currency_id' => Currency::where('name', 'US Dollar')->first()->id,
         ];

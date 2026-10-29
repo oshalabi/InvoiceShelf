@@ -1,166 +1,86 @@
-# InvoiceShelf Development Environment
+# InvoiceShelf development environment
 
-This is dockerized development environment that allows developers to easily get started to develop InvoiceShelf.
+The repository includes a Docker Compose development stack for Linux and macOS.
+It provides PHP 8.4, nginx, your chosen database, Adminer, and Mailpit. An
+optional Gotenberg service is available for PDF development.
 
-This development environment is **NOT MEANT TO BE USED IN PRODUCTION** and is preconfigured with all the needed tools that InvoiceShelf requires for development purposes. It works on Windows, Linux and MacOS.
+> This stack is for development only. For a production installation, use the
+> [official Docker repository](https://github.com/InvoiceShelf/docker).
 
-For production grade docker image, please refer to [InvoiceShelf/docker](https://github.com/InvoiceShelf/docker) and [InvoiceShelf on DockerHub](https://hub.docker.com/r/invoiceshelf/invoiceshelf).
+## Start the stack
 
-## How to set up
+You need Git, Docker, and Docker Compose. Clone your fork, prepare the local
+environment file, and run the interactive helper from the repository root:
 
-### 1. Hosts configuration
-
-We use `invoiceshelf.test` domain for local development within this environment and you need to adhere to it.
-
-For that purpose you need to edit your OS hosts file or DNS server and add the following line to make the local domain name available on your system.
-
-```
-127.0.0.1 invoiceshelf.test
-```
-
-#### 1.1. Windows
-
-The hosts file on Windows is located at `C:\Windows\system32\drivers\etc\hosts`.
-
-You need to launch Notepad as administrator, open the file through **File > Open**, add the line from above and save the file.
-
-#### 1.2. Linux/MacOS
-
-The hosts file on Linux and Mac is located at `/etc/hosts`.
-
-You need to open the file using your favorite editor as sudo/root, add the line from above and save the file.
-
-### 2. FileSystem configuration (Linux)
-
-If you are using **Linux**, you need to make sure that **USRID** and **GRPID** environment variables are set and matching your current session user ids. Those two variables are required to set up the filesystem permissions correctly on Linux.
-
-You can run it one time, every time before starting as follows:
-
-```
-export USRID=$(id -u) && export GRPID=$(id -g)
+```bash
+git clone git@github.com:YOUR-USERNAME/InvoiceShelf.git
+cd InvoiceShelf
+cp .env.example .env
+./devenv
 ```
 
-or you can append this to your .zshrc/.bashrc by running this command in your terminal:
+The helper:
 
-```
-grep -qxF 'export USRID=$(id -u) GRPID=$(id -g)' ~/.${SHELL##*/}rc || echo 'export USRID=$(id -u) GRPID=$(id -g)' >> ~/.${SHELL##*/}rc
-```
-this will append the `export` line to your rc file and run it on each terminal session.
+1. checks Docker and Docker Compose;
+2. adds `invoiceshelf.test` to `/etc/hosts` when needed;
+3. asks you to choose MySQL/MariaDB, PostgreSQL, or SQLite;
+4. optionally enables the Gotenberg PDF service; and
+5. saves that choice in `.devenvconfig` for later commands.
 
-### 3. Clone the project
+On the first run, install the PHP dependencies inside the running container:
 
-Clone the InvoiceShelf project directly from InvoiceShelf git or your forked repository:
-
-```bash 
-git clone git@github.com:InvoiceShelf/InvoiceShelf.git
-```
-
-## Development Workflow
-
-We bundled separate docker-compose.yml file for each database: MySQL, PostgresSQL and SQLite, you can use any of those to spin up your development environment.
-
-| Database | Compose File              |
-|---------|---------------------------|
-| SQLite3 | docker-compose.sqlite.yml |
-| MariaDB | docker-compose.mysql.yml  |
-| PostgresSQL | dpcler-compose.pgsql.yml  |
-
-### 1. Spinning Up
-
-To **spin up** the environment, run docker compose as follows:
-
-**Important**: If you are on **Linux** and didn't add the `export` line to your .zshrc/.bashrc file, you need to repeat `step 2` before spinning up, otherwise you will face permissions issues.
-
-```
-docker compose -f docker/development/docker-compose.mysql.yml up --build
+```bash
+./devenv run composer install
+./devenv run php artisan key:generate
 ```
 
-### 2. Spinning Down
+The frontend runs on the host with Node.js 24 and the pnpm version pinned in
+`package.json`:
 
-To **spin down** the environment, run docker compose as follows:
-
-```
-docker compose -f docker/development/docker-compose.mysql.yml down
-```
-
-### 3. Working with binaries
-
-To correctly run `composer`, `npm`, `artisan`, `pint`, `pest` or other binaries within this project, you must ssh into the container as follows:
-
-```
-docker exec -it invoiceshelf-dev-php /bin/sh
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-In the `/var/www/html` directory you can find the application root and run the commands from there.
+Keep `pnpm dev` running while you work. Open <http://invoiceshelf.test> and
+complete the installation wizard. For
+MySQL or PostgreSQL, use `db` as the database host and `invoiceshelf` as the
+database name, username, and password. For SQLite, keep the wizard's default
+`storage/app/database.sqlite` path.
 
-## What is included
+## Everyday commands
 
-### 1. Web Server
+```bash
+./devenv start              # Start the saved stack
+./devenv stop               # Stop it
+./devenv logs               # Follow service logs
+./devenv shell              # Open a shell in the PHP container
+./devenv run php artisan about
+./devenv test               # Run Pest
+./devenv format             # Run Pint
+./devenv rebuild            # Rebuild images from scratch
+```
 
-This dockerized environment uses PHP-FPM and NGINX together to serve the website `invoiceshelf.test`
+`./devenv destroy` removes the stack, its images, and its database volumes. The
+command asks for confirmation before deleting anything.
 
-Both NGINX and PHP-FPM are configured with optimal settings for development. Please don't use this in production.
+## Services
 
-**URL**: http://invoiceshelf.test/
+| Service | Address |
+| --- | --- |
+| InvoiceShelf | <http://invoiceshelf.test> |
+| Adminer | <http://localhost:8080> |
+| Mailpit | <http://localhost:8025> |
 
-### 2. Databases
+Mailpit receives development email over SMTP at `mail:1025`. Adminer connects
+to MySQL or PostgreSQL at host `db`; its database, username, and password are
+all `invoiceshelf`.
 
-This dockerized environment comes with support for all three databases that InvoiceShelf suppots: MySQL, PostgreSQL and SQLite.
+## Advanced Compose usage
 
-The setup parameters/credentials for each of the supported databases are as follows.
+The six Compose definitions in this directory cover all three databases, with
+and without Gotenberg. The `./devenv` helper is the supported entry point, but
+you can inspect or run those files directly when debugging the stack.
 
-|   | MySQL | PostgreSQL | SQLite                                    |
-|---|---|---|-------------------------------------------|
-| **DB_USER** | invoiceshelf  | invoiceshelf | Not applicable                            |
-| **DB_PASS** | invoiceshelf  | invoiceshelf | Not applicable                            |
-| **DB_NAME** | invoiceshelf  | invoiceshelf | /var/www/html/storage/app/database.sqlite |
-| **DB_HOST** | 172.18.0.1  |  172.18.0.1 | Not applicable                            |
-| **DB_PORT** | 3306  | 5432  | Not applicable                            |
-
-**Note:** The only required field for SQLite is **DB_NAME**.
-
-### 3. Adminer
-
-Adminer is UI tool for viewing the database contents and executing queries.
-
-It supports MySQL, PostgreSQL, SQLite.
-
-**URL**: http://invoiceshelf.test:8080
-
-#### MySQL/PostgresSQL
-
-To log into the MySQL or PostgresSQL, use the database information specified in the above section (2. Databases)
-
-#### SQLite
-
-To log into the SQLite, use the following credentials:
-
-| KEY          | VALUE                        |
-|--------------|------------------------------|
-| **USERNAME** | admin                        |
-| **PASSWORD** | admin                        |
-| **DATABASE** | /storage/app/database.sqlite |
-
-
-### 4. Mailpit (fake mail)
-
-To utilize Mailpit, use the following credentials:
-
-| KEY                 | VALUE       |
-|---------------------|-------------|
-| **MAIL DRIVER**     | smtp        |
-| **MAIL HOST**       | mail        |
-| **MAIL PORT**       | 1025        |
-| **MAIL ENCRYPTION** | none        |
-| **MAIL USER**       | leave empty |
-| **MAIL PASS**       | leave empty |
-| **FROM MAIL ADDR**  | your choice |
-| **FROM MAIL NAME**  | your choice |
-
-
-**URL**: http://invoiceshelf.test:8025
-
----
-
-If you have any questions, feel free to open issue.
-
+Run `./devenv --help` for the complete command list.

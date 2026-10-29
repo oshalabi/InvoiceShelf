@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Models\ExpenseCategory;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Purchases\Models\ExpenseCategory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ExpenseCategoryFactory extends Factory

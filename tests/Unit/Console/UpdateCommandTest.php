@@ -1,6 +1,6 @@
 <?php
 
-use App\Console\Commands\UpdateCommand;
+use App\Platform\Operations\Console\UpdateCommand;
 
 it('reads installed version from version file', function () {
     $command = app(UpdateCommand::class);

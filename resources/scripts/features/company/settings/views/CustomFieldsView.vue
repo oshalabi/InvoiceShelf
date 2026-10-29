@@ -1,0 +1,194 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useModalStore } from '../../../../stores/modal.store'
+import { useUserStore } from '../../../../stores/user.store'
+import { customFieldService } from '../../../../api/services/custom-field.service'
+import { useCustomFieldModels } from '@/scripts/features/shared/custom-fields/use-custom-field-models'
+import CustomFieldDropdown from '@/scripts/features/company/settings/components/CustomFieldDropdown.vue'
+import CustomFieldModal from '@/scripts/features/company/settings/components/CustomFieldModal.vue'
+
+interface TableColumn {
+  key: string
+  label?: string
+  thClass?: string
+  tdClass?: string
+  sortable?: boolean
+}
+
+interface FetchParams {
+  page: number
+  filter: Record<string, unknown>
+  sort: { fieldName: string; order: string }
+}
+
+interface FetchResult {
+  data: unknown[]
+  pagination: {
+    totalPages: number
+    currentPage: number
+    totalCount: number
+    limit: number
+  }
+}
+
+const ABILITIES = {
+  CREATE_CUSTOM_FIELDS: 'create-custom-field',
+  DELETE_CUSTOM_FIELDS: 'delete-custom-field',
+  EDIT_CUSTOM_FIELDS: 'edit-custom-field',
+} as const
+
+const modalStore = useModalStore()
+const userStore = useUserStore()
+const { t } = useI18n()
+
+const table = ref<{ refresh: () => void } | null>(null)
+
+const customFieldsColumns = computed<TableColumn[]>(() => [
+  {
+    key: 'name',
+    label: t('settings.custom_fields.name'),
+    thClass: 'extra',
+    tdClass: 'font-medium text-heading',
+  },
+  {
+    key: 'model_type',
+    label: t('settings.custom_fields.model'),
+  },
+  {
+    key: 'type',
+    label: t('settings.custom_fields.type'),
+  },
+  {
+    key: 'is_required',
+    label: t('settings.custom_fields.required'),
+  },
+  {
+    key: 'actions',
+    label: '',
+    tdClass: 'text-end text-sm font-medium',
+    sortable: false,
+  },
+])
+
+async function fetchData({ page, sort }: FetchParams): Promise<FetchResult> {
+  const data = {
+    orderByField: sort.fieldName || 'created_at',
+    orderBy: sort.order || 'desc',
+    page,
+  }
+
+  const response = await customFieldService.list(data)
+
+  return {
+    data: (response as Record<string, unknown>).data as unknown[],
+    pagination: {
+      totalPages: ((response as Record<string, unknown>).meta as Record<string, number>).last_page,
+      currentPage: page,
+      limit: 5,
+      totalCount: ((response as Record<string, unknown>).meta as Record<string, number>).total,
+    },
+  }
+}
+
+function addCustomField(): void {
+  modalStore.openModal({
+    title: t('settings.custom_fields.add_custom_field'),
+    componentName: 'CustomFieldModal',
+    size: 'md',
+    refreshData: table.value?.refresh,
+  })
+}
+
+function refreshTable(): void {
+  table.value?.refresh()
+}
+
+const { labelFor: getModelType } = useCustomFieldModels()
+</script>
+
+<template>
+  <BaseSettingCard
+    :title="$t('settings.menu_title.custom_fields')"
+    :description="$t('settings.custom_fields.section_description')"
+  >
+    <template #action>
+      <BaseButton
+        v-if="userStore.hasAbilities(ABILITIES.CREATE_CUSTOM_FIELDS)"
+        variant="primary-outline"
+        @click="addCustomField"
+      >
+        <template #left="slotProps">
+          <BaseIcon :class="slotProps.class" name="PlusIcon" />
+          {{ $t('settings.custom_fields.add_custom_field') }}
+        </template>
+      </BaseButton>
+    </template>
+
+    <CustomFieldModal />
+
+    <BaseTable
+      ref="table"
+      :data="fetchData"
+      :columns="customFieldsColumns"
+      class="mt-16"
+    >
+      <template #cell-name="{ row }">
+        {{ row.data.name }}
+        <span class="text-xs text-muted"> ({{ row.data.slug }})</span>
+      </template>
+
+      <template #cell-model_type="{ row }">
+        {{ getModelType(row.data.model_type) }}
+      </template>
+
+      <template #cell-is_required="{ row }">
+        <BaseBadge
+          :bg-color="row.data.is_required ? 'bg-green-100' : 'bg-gray-100'"
+          :color="row.data.is_required ? 'text-green-800' : 'text-gray-800'"
+        >
+          {{
+            row.data.is_required
+              ? $t('settings.custom_fields.yes')
+              : $t('settings.custom_fields.no')
+          }}
+        </BaseBadge>
+      </template>
+
+      <template
+        v-if="
+          userStore.hasAbilities([
+            ABILITIES.DELETE_CUSTOM_FIELDS,
+            ABILITIES.EDIT_CUSTOM_FIELDS,
+          ])
+        "
+        #cell-actions="{ row }"
+      >
+        <CustomFieldDropdown
+          :row="row.data"
+          :table="table"
+          :load-data="refreshTable"
+        />
+      </template>
+      <!-- Nothing here yet: say what goes here and offer to add the first -->
+      <template #empty>
+        <BaseEmptyPlaceholder
+          compact
+          art="field"
+          :ghost="4"
+          :title="$t('settings.custom_fields.empty_title')"
+          :description="$t('settings.custom_fields.empty_description')"
+        >
+          <template v-if="userStore.hasAbilities(ABILITIES.CREATE_CUSTOM_FIELDS)" #actions>
+            <BaseButton variant="primary-outline" @click="addCustomField">
+              <template #left="slotProps">
+                <BaseIcon name="PlusIcon" :class="slotProps.class" />
+              </template>
+              {{ $t('settings.custom_fields.add_custom_field') }}
+            </BaseButton>
+          </template>
+        </BaseEmptyPlaceholder>
+      </template>
+    </BaseTable>
+  </BaseSettingCard>
+</template>

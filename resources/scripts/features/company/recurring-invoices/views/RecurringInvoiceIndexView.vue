@@ -1,0 +1,521 @@
+<template>
+  <BasePage>
+    <BasePageHeader :help="$t('page_help.recurring_invoices')" :title="$t('recurring_invoices.title')">
+      <BaseBreadcrumb>
+        <BaseBreadcrumbItem :title="$t('general.home')" to="dashboard" />
+        <BaseBreadcrumbItem
+          :title="$t('recurring_invoices.invoice', 2)"
+          to="#"
+          active
+        />
+      </BaseBreadcrumb>
+
+      <template #actions>
+        <BaseButton
+          v-show="recurringInvoiceStore.totalRecurringInvoices"
+          variant="primary-outline"
+          :aria-expanded="showFilters"
+          @click="toggleFilter"
+        >
+          {{ $t('general.filter') }}
+          <template #right="slotProps">
+            <BaseIcon
+              v-if="!showFilters"
+              name="FunnelIcon"
+              :class="slotProps.class"
+            />
+            <BaseIcon v-else name="XMarkIcon" :class="slotProps.class" />
+          </template>
+        </BaseButton>
+
+        <router-link
+          v-if="canCreate"
+          to="recurring-invoices/create"
+          class="inline-flex rounded-lg ms-4"
+        >
+          <BaseButton tag="span" variant="primary">
+            <template #left="slotProps">
+              <BaseIcon name="PlusIcon" :class="slotProps.class" />
+            </template>
+            {{ $t('recurring_invoices.new_invoice') }}
+          </BaseButton>
+        </router-link>
+      </template>
+    </BasePageHeader>
+
+    <!-- Filters -->
+    <BaseFilterWrapper v-show="showFilters" @clear="clearFilter">
+      <BaseInputGroup :label="$t('customers.customer', 1)">
+        <BaseCustomerSelectInput
+          v-model="filters.customer_id"
+          :placeholder="$t('customers.type_or_click')"
+          value-prop="id"
+          label="name"
+        />
+      </BaseInputGroup>
+
+      <BaseInputGroup :label="$t('recurring_invoices.status')">
+        <BaseMultiselect
+          v-model="filters.status"
+          :options="statusList"
+          searchable
+          :placeholder="$t('general.select_a_status')"
+          @update:model-value="setActiveTab"
+          @remove="clearStatusSearch()"
+        />
+      </BaseInputGroup>
+
+      <BaseInputGroup :label="$t('general.from')">
+        <BaseDatePicker
+          v-model="filters.from_date"
+          :calendar-button="true"
+          calendar-button-icon="calendar"
+        />
+      </BaseInputGroup>
+
+      <div
+        class="hidden w-4 h-px mb-5 shrink-0 bg-line-strong xl:block"
+      />
+
+      <BaseInputGroup :label="$t('general.to')">
+        <BaseDatePicker
+          v-model="filters.to_date"
+          :calendar-button="true"
+          calendar-button-icon="calendar"
+        />
+      </BaseInputGroup>
+    </BaseFilterWrapper>
+
+    <!-- Empty State -->
+    <BaseEmptyPlaceholder
+      v-show="showEmptyScreen"
+      art="recurring"
+      :ghost="6"
+      :title="$t('recurring_invoices.no_invoices')"
+      :description="$t('recurring_invoices.empty_description')"
+    >
+      <template v-if="canCreate" #actions>
+        <BaseButton
+          variant="primary"
+          @click="$router.push('/admin/recurring-invoices/create')"
+        >
+          <template #left="slotProps">
+            <BaseIcon name="PlusIcon" :class="slotProps.class" />
+          </template>
+          {{ $t('recurring_invoices.add_new_invoice') }}
+        </BaseButton>
+      </template>
+    </BaseEmptyPlaceholder>
+
+    <!-- Table -->
+    <div v-show="!showEmptyScreen" class="relative flex flex-col gap-4 table-container">
+      <BaseTabGroup
+        :default-index="currentStatusIndex"
+        @change="setStatusFilter"
+      >
+        <BaseTab :title="$t('recurring_invoices.all')" filter="ALL" />
+        <BaseTab :title="$t('recurring_invoices.active')" filter="ACTIVE" />
+        <BaseTab
+          :title="$t('recurring_invoices.on_hold')"
+          filter="ON_HOLD"
+        />
+      </BaseTabGroup>
+
+      <BaseTable
+        ref="tableRef"
+        :no-results-message="$t('recurring_invoices.no_matching_invoices')"
+        :data="fetchData"
+        :columns="invoiceColumns"
+        :placeholder-count="
+          recurringInvoiceStore.totalRecurringInvoices >= 20 ? 10 : 5
+        "
+        :row-to="recurringInvoiceLink"
+        :selected-count="
+          canDelete ? recurringInvoiceStore.selectedRecurringInvoices.length : 0
+        "
+      >
+        <template #bulk-actions>
+          <BaseButton
+            size="xs"
+            variant="white"
+            @click="removeMultipleRecurringInvoices()"
+          >
+            <template #left="slotProps">
+              <BaseIcon name="TrashIcon" :class="slotProps.class" />
+            </template>
+            {{ $t('general.delete') }}
+          </BaseButton>
+        </template>
+
+        <template #header>
+          <div class="absolute items-center start-6 top-3.5 select-none">
+            <BaseCheckbox
+              v-model="recurringInvoiceStore.selectAllField"
+              :aria-label="$t('general.select_all')"
+              variant="primary"
+              @change="recurringInvoiceStore.selectAllRecurringInvoices"
+            />
+          </div>
+        </template>
+
+        <template #cell-checkbox="{ row }">
+          <div class="relative block">
+            <BaseCheckbox
+              :id="row.id"
+              v-model="selectField"
+              :aria-label="$t('general.select_named', { name: row.data.customer?.name ?? row.data.id })"
+              :value="row.data.id"
+            />
+          </div>
+        </template>
+
+        <template #cell-starts_at="{ row }">
+          {{ row.data.formatted_starts_at }}
+        </template>
+
+        <template #cell-customer="{ row }">
+          <router-link
+            :to="{ path: `recurring-invoices/${row.data.id}/view` }"
+          >
+            <BaseText
+              :text="row.data.customer.name"
+              tag="span"
+              class="font-medium text-heading hover:text-primary-600 flex flex-col"
+            />
+            <BaseText
+              :text="row.data.customer.contact_name ?? ''"
+              tag="span"
+              class="text-xs text-subtle"
+            />
+          </router-link>
+        </template>
+
+        <template #cell-frequency="{ row }">
+          {{ getFrequencyLabel(row.data.frequency) }}
+        </template>
+
+        <template #cell-status="{ row }">
+          <BaseRecurringInvoiceStatusBadge
+            :status="row.data.status"
+            class="px-3 py-1"
+          >
+            <BaseRecurringInvoiceStatusLabel :status="row.data.status" />
+          </BaseRecurringInvoiceStatusBadge>
+        </template>
+
+        <template #cell-total="{ row }">
+          <BaseFormatMoney
+            :amount="row.data.total"
+            :currency="row.data.customer.currency"
+          />
+        </template>
+
+        <template v-if="hasAtLeastOneAbility" #cell-actions="{ row }">
+          <RecurringInvoiceDropdown
+            :row="row.data"
+            :table="tableRef"
+            :can-edit="canEdit"
+            :can-view="canView"
+            :can-delete="canDelete"
+          />
+        </template>
+      </BaseTable>
+    </div>
+  </BasePage>
+</template>
+
+<script setup lang="ts">
+import type { ColumnDef } from '@/scripts/components/table/DataTable.vue'
+import { computed, onUnmounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { debouncedWatch } from '@vueuse/core'
+import { useRecurringInvoiceStore } from '../store'
+import RecurringInvoiceDropdown from '../components/RecurringInvoiceDropdown.vue'
+import { useUserStore } from '../../../../stores/user.store'
+import { useDialogStore } from '../../../../stores/dialog.store'
+import type { RecurringInvoice } from '../../../../types/domain/recurring-invoice'
+
+interface Props {
+  canCreate?: boolean
+  canEdit?: boolean
+  canView?: boolean
+  canDelete?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  canCreate: false,
+  canEdit: false,
+  canView: false,
+  canDelete: false,
+})
+
+const ABILITIES = {
+  CREATE: 'create-recurring-invoice',
+  EDIT: 'edit-recurring-invoice',
+  VIEW: 'view-recurring-invoice',
+  DELETE: 'delete-recurring-invoice',
+} as const
+
+const recurringInvoiceStore = useRecurringInvoiceStore()
+const userStore = useUserStore()
+const dialogStore = useDialogStore()
+const { t } = useI18n()
+
+// Initialize frequencies with translations
+recurringInvoiceStore.initFrequencies(t)
+
+const tableRef = ref<{ refresh: () => void } | null>(null)
+const showFilters = ref<boolean>(false)
+const isRequestOngoing = ref<boolean>(true)
+const activeTab = ref<string>('recurring-invoices.all')
+
+interface StatusOption {
+  label: string
+  value: string
+}
+
+const statusList = ref<StatusOption[]>([
+  { label: t('recurring_invoices.active'), value: 'ACTIVE' },
+  { label: t('recurring_invoices.on_hold'), value: 'ON_HOLD' },
+  { label: t('recurring_invoices.all'), value: 'ALL' },
+])
+
+interface RecurringInvoiceFilters {
+  customer_id: string | number
+  status: string
+  from_date: string
+  to_date: string
+}
+
+const filters = reactive<RecurringInvoiceFilters>({
+  customer_id: '',
+  status: '',
+  from_date: '',
+  to_date: '',
+})
+
+const showEmptyScreen = computed<boolean>(
+  () =>
+    !recurringInvoiceStore.totalRecurringInvoices && !isRequestOngoing.value,
+)
+
+const canCreate = computed<boolean>(() => {
+  return props.canCreate || userStore.hasAbilities(ABILITIES.CREATE)
+})
+
+const canEdit = computed<boolean>(() => {
+  return props.canEdit || userStore.hasAbilities(ABILITIES.EDIT)
+})
+
+const canView = computed<boolean>(() => {
+  return props.canView || userStore.hasAbilities(ABILITIES.VIEW)
+})
+
+const canDelete = computed<boolean>(() => {
+  return props.canDelete || userStore.hasAbilities(ABILITIES.DELETE)
+})
+
+const hasAtLeastOneAbility = computed<boolean>(() => {
+  return canDelete.value || canEdit.value || canView.value
+})
+
+const selectField = computed<number[]>({
+  get: () => recurringInvoiceStore.selectedRecurringInvoices,
+  set: (value: number[]) => {
+    recurringInvoiceStore.selectRecurringInvoice(value)
+  },
+})
+
+const currentStatusIndex = computed<number>(() => {
+  return statusList.value.findIndex(
+    (status) => status.value === filters.status,
+  )
+})
+
+type TableColumn = Omit<ColumnDef, 'label'> & { label?: string }
+
+const invoiceColumns = computed<TableColumn[]>(() => [
+  {
+    key: 'checkbox',
+    thClass: 'extra',
+    tdClass: 'font-medium text-heading',
+  },
+  {
+    key: 'starts_at',
+    label: t('recurring_invoices.starts_at'),
+    thClass: 'extra',
+    tdClass: 'font-medium',
+    mobile: 'subtitle',
+  },
+  { key: 'customer', label: t('invoices.customer'), mobile: 'title' },
+  {
+    key: 'frequency',
+    label: t('recurring_invoices.frequency.title'),
+    mobile: 'subtitle',
+  },
+  { key: 'status', label: t('invoices.status'), mobile: 'badge' },
+  {
+    key: 'total',
+    label: t('invoices.total'),
+    align: 'end',
+    mobile: 'trailing',
+  },
+  {
+    key: 'actions',
+    label: t('recurring_invoices.action'),
+    tdClass: 'text-end text-sm font-medium',
+    thClass: 'text-end',
+    sortable: false,
+    mobile: 'actions',
+  },
+])
+
+function recurringInvoiceLink(row: { id?: number | string }): string {
+  return `/admin/recurring-invoices/${row.id}/view`
+}
+
+debouncedWatch(filters, () => setFilters(), { debounce: 500 })
+
+onUnmounted(() => {
+  if (recurringInvoiceStore.selectAllField) {
+    recurringInvoiceStore.selectAllRecurringInvoices()
+  }
+})
+
+function getFrequencyLabel(frequencyFormat: string): string {
+  const frequencyObj = recurringInvoiceStore.frequencies.find(
+    (f) => f.value === frequencyFormat,
+  )
+  return frequencyObj ? frequencyObj.label : `CUSTOM: ${frequencyFormat}`
+}
+
+function refreshTable(): void {
+  tableRef.value?.refresh()
+}
+
+interface FetchParams {
+  page: number
+  filter: Record<string, unknown>
+  sort: { fieldName?: string; order?: string }
+}
+
+interface FetchResult {
+  data: RecurringInvoice[]
+  pagination: {
+    totalPages: number
+    currentPage: number
+    totalCount: number
+    limit: number
+  }
+}
+
+async function fetchData({
+  page,
+  sort,
+}: FetchParams): Promise<FetchResult> {
+  const data = {
+    customer_id: filters.customer_id
+      ? Number(filters.customer_id)
+      : undefined,
+    status: filters.status || undefined,
+    from_date: filters.from_date || undefined,
+    to_date: filters.to_date || undefined,
+    orderByField: sort.fieldName || 'created_at',
+    orderBy: sort.order || 'desc',
+    page,
+  }
+
+  isRequestOngoing.value = true
+  const response = await recurringInvoiceStore.fetchRecurringInvoices(
+    data as never,
+  )
+  isRequestOngoing.value = false
+
+  return {
+    data: response.data.data,
+    pagination: {
+      totalPages: response.data.meta.last_page,
+      currentPage: page,
+      totalCount: response.data.meta.total,
+      limit: 10,
+    },
+  }
+}
+
+function setStatusFilter(val: { title: string }): void {
+  if (activeTab.value === val.title) return
+  activeTab.value = val.title
+
+  switch (val.title) {
+    case t('recurring_invoices.active'):
+      filters.status = 'ACTIVE'
+      break
+    case t('recurring_invoices.on_hold'):
+      filters.status = 'ON_HOLD'
+      break
+    case t('recurring_invoices.all'):
+      filters.status = 'ALL'
+      break
+  }
+}
+
+function setFilters(): void {
+  recurringInvoiceStore.$patch((state) => {
+    state.selectedRecurringInvoices = []
+    state.selectAllField = false
+  })
+  refreshTable()
+}
+
+function clearFilter(): void {
+  filters.customer_id = ''
+  filters.status = ''
+  filters.from_date = ''
+  filters.to_date = ''
+  activeTab.value = t('general.all')
+}
+
+function toggleFilter(): void {
+  if (showFilters.value) {
+    clearFilter()
+  }
+  showFilters.value = !showFilters.value
+}
+
+function clearStatusSearch(): void {
+  filters.status = ''
+  refreshTable()
+}
+
+function setActiveTab(val: string): void {
+  const tabMap: Record<string, string> = {
+    ACTIVE: t('recurring_invoices.active'),
+    ON_HOLD: t('recurring_invoices.on_hold'),
+    ALL: t('recurring_invoices.all'),
+  }
+  activeTab.value = tabMap[val] ?? t('general.all')
+}
+
+function removeMultipleRecurringInvoices(): void {
+  dialogStore.openDialog({
+    title: t('general.are_you_sure'),
+    message: t('invoices.confirm_delete'),
+    yesLabel: t('general.ok'),
+    noLabel: t('general.cancel'),
+    variant: 'danger',
+    hideNoButton: false,
+    size: 'lg',
+  }).then(async (res: boolean) => {
+    if (res) {
+      const response = await recurringInvoiceStore.deleteMultipleRecurringInvoices()
+      if (response.data.success) {
+        refreshTable()
+        recurringInvoiceStore.$patch((state) => {
+          state.selectedRecurringInvoices = []
+          state.selectAllField = false
+        })
+      }
+    }
+  })
+}
+</script>

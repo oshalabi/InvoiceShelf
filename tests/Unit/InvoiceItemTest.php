@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\Item;
+use App\Domains\Catalog\Models\Item;
+use App\Domains\Sales\Models\Invoice;
+use App\Domains\Sales\Models\InvoiceItem;
 use Illuminate\Support\Facades\Artisan;
 
 beforeEach(function () {

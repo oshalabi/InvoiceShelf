@@ -1,0 +1,115 @@
+name: Release
+
+# Tagging is the trigger. Both spellings are accepted because every tag to date
+# is bare (3.0.0-alpha.1, 2.4.2) while this workflow previously listened only for
+# "v*" — so it had never once fired, and tagging by the established convention
+# produced silence.
+on:
+  push:
+    tags:
+      - '[0-9]*'
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+# Which major owns GitHub's "Latest release" pointer. Same value and same meaning
+# as in publish.yaml, which gates the moving :latest image tags on it — bump both
+# on this branch, and publish.yaml on 2.x, when 3.0.0 GA is tagged.
+env:
+  LATEST_MAJOR: "2"
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yaml
+
+  release:
+    name: Build & Release
+    needs:
+      - tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: bcmath, curl, dom, gd, imagick, json, libxml, mbstring, pcntl, pdo, pdo_mysql, zip
+          tools: composer
+
+      - name: Read the release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! php .github/scripts/changelog-section.php "$TAG" > /tmp/notes.md; then
+            echo "::error::No CHANGELOG.md section for $TAG — add one before tagging."
+            exit 1
+          fi
+          echo "Using the CHANGELOG.md section for $TAG"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # `make dist` owns the artifact: it installs composer/pnpm dependencies,
+      # builds the frontend, assembles the package and generates the manifest.
+      # This workflow used to hand-copy the same file list a second time, with
+      # publish.yaml then overwriting the result — two copies of one list, and job
+      # ordering deciding what users received.
+      - name: Build the release package
+        run: make clean dist
+
+      # Created as a draft with the package already attached, then published as a
+      # separate step. `release: published` therefore fires only once the tests
+      # have passed and the asset is in place, so downstream registration can
+      # never race the upload — and a failed run leaves no release at all rather
+      # than a published one nobody can download.
+      # The draft is where this workflow stops. Publishing is left to a person,
+      # because a release published by the workflow would never reach publish.yaml:
+      # GitHub does not start workflow runs from events created with GITHUB_TOKEN,
+      # so `release: published` fires as github-actions[bot] and triggers nothing.
+      # 2.4.3-beta.2 was published that way and got no registration and no images.
+      # A human pressing Publish fires the event under their own identity, and the
+      # existing downstream runs untouched.
+      #
+      # prerelease and make_latest are set here rather than at publish time, so the
+      # release is already correct when that button is pressed — GitHub's publish
+      # dialog otherwise defaults "Set as the latest release" to checked, which
+      # would let a 3.0.0 alpha displace 2.4.x.
+      - name: Create the draft release
+        id: draft
+        uses: softprops/action-gh-release@v3
+        with:
+          files: InvoiceShelf.zip
+          body_path: /tmp/notes.md
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') && startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+
+      # A draft nobody knows about is no use, so the run ends by saying what was
+      # built and what to do with it.
+      - name: Say what to do next
+        env:
+          TAG: ${{ github.ref_name }}
+          URL: ${{ steps.draft.outputs.url }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
+          IS_LATEST: ${{ !contains(github.ref_name, '-') && startsWith(github.ref_name, format('{0}.', env.LATEST_MAJOR)) }}
+        run: |
+          {
+            echo "### $TAG is drafted and ready to publish"
+            echo
+            echo "- Draft: $URL"
+            echo "- Pre-release: \`$PRERELEASE\` — a pre-release goes to the insider channel only"
+            echo "- Mark as latest: \`$IS_LATEST\`"
+            echo
+            echo "**Publishing it** builds the Docker images and registers it on the updater."
+            echo "Nothing reaches installs until you do."
+          } >> "$GITHUB_STEP_SUMMARY"

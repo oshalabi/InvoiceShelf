@@ -1,0 +1,162 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useModalStore } from '../../../../stores/modal.store'
+import { expenseService } from '../../../../api/services/expense.service'
+import { useUserStore } from '@/scripts/stores/user.store'
+import { ABILITIES } from '@/scripts/config/abilities'
+import ExpenseCategoryDropdown from '@/scripts/features/company/settings/components/ExpenseCategoryDropdown.vue'
+import CategoryModal from '@/scripts/features/company/settings/components/CategoryModal.vue'
+
+interface TableColumn {
+  key: string
+  label?: string
+  thClass?: string
+  tdClass?: string
+  sortable?: boolean
+}
+
+interface FetchParams {
+  page: number
+  filter: Record<string, unknown>
+  sort: { fieldName: string; order: string }
+}
+
+interface FetchResult {
+  data: unknown[]
+  pagination: {
+    totalPages: number
+    currentPage: number
+    totalCount: number
+    limit: number
+  }
+}
+
+const modalStore = useModalStore()
+const userStore = useUserStore()
+// Adding takes create or edit, changing edit; seeing the headings only view.
+const canEdit = computed<boolean>(() => userStore.hasAbilities(ABILITIES.EDIT_EXPENSE))
+const canAdd = computed<boolean>(
+  () => canEdit.value || userStore.hasAbilities(ABILITIES.CREATE_EXPENSE)
+)
+const { t } = useI18n()
+
+const table = ref<{ refresh: () => void } | null>(null)
+
+const expenseCategoryColumns = computed<TableColumn[]>(() => [
+  {
+    key: 'name',
+    label: t('settings.expense_category.category_name'),
+    thClass: 'extra',
+    tdClass: 'font-medium text-heading',
+  },
+  {
+    key: 'description',
+    label: t('settings.expense_category.category_description'),
+    thClass: 'extra',
+    tdClass: 'font-medium text-heading',
+  },
+  {
+    key: 'actions',
+    label: '',
+    tdClass: 'text-end text-sm font-medium',
+    sortable: false,
+  },
+])
+
+async function fetchData({ page, sort }: FetchParams): Promise<FetchResult> {
+  const data = {
+    orderByField: sort.fieldName || 'created_at',
+    orderBy: sort.order || 'desc',
+    page,
+  }
+
+  const response = await expenseService.listCategories(data)
+
+  return {
+    data: (response as Record<string, unknown>).data as unknown[],
+    pagination: {
+      totalPages: ((response as Record<string, unknown>).meta as Record<string, number>).last_page,
+      currentPage: page,
+      totalCount: ((response as Record<string, unknown>).meta as Record<string, number>).total,
+      limit: 5,
+    },
+  }
+}
+
+function openCategoryModal(): void {
+  modalStore.openModal({
+    title: t('settings.expense_category.add_category'),
+    componentName: 'CategoryModal',
+    size: 'sm',
+    refreshData: table.value?.refresh,
+  })
+}
+
+function refreshTable(): void {
+  table.value?.refresh()
+}
+</script>
+
+<template>
+  <CategoryModal />
+
+  <BaseSettingCard
+    :title="$t('settings.expense_category.title')"
+    :description="$t('settings.expense_category.description')"
+  >
+    <template v-if="canAdd" #action>
+      <BaseButton
+        variant="primary-outline"
+        type="button"
+        @click="openCategoryModal"
+      >
+        <template #left="slotProps">
+          <BaseIcon :class="slotProps.class" name="PlusIcon" />
+        </template>
+        {{ $t('settings.expense_category.add_new_category') }}
+      </BaseButton>
+    </template>
+
+    <BaseTable
+      ref="table"
+      :data="fetchData"
+      :columns="expenseCategoryColumns"
+      class="mt-16"
+    >
+      <template #cell-description="{ row }">
+        <div class="w-64">
+          <p class="truncate">{{ row.data.description }}</p>
+        </div>
+      </template>
+
+      <template #cell-actions="{ row }">
+        <ExpenseCategoryDropdown
+          v-if="canEdit"
+          :row="row.data"
+          :table="table"
+          :load-data="refreshTable"
+        />
+      </template>
+      <!-- Nothing here yet: say what goes here and offer to add the first -->
+      <template #empty>
+        <BaseEmptyPlaceholder
+          compact
+          art="category"
+          :ghost="3"
+          :title="$t('settings.expense_category.empty_title')"
+          :description="$t('settings.expense_category.empty_description')"
+        >
+          <template v-if="canAdd" #actions>
+            <BaseButton variant="primary-outline" @click="openCategoryModal">
+              <template #left="slotProps">
+                <BaseIcon name="PlusIcon" :class="slotProps.class" />
+              </template>
+              {{ $t('settings.expense_category.add_new_category') }}
+            </BaseButton>
+          </template>
+        </BaseEmptyPlaceholder>
+      </template>
+    </BaseTable>
+  </BaseSettingCard>
+</template>

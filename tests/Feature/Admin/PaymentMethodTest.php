@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\V1\Admin\Payment\PaymentMethodsController;
-use App\Http\Requests\PaymentMethodRequest;
-use App\Models\PaymentMethod;
-use App\Models\User;
+use App\Domains\Accounts\Models\User;
+use App\Domains\Receivables\Http\Controllers\Company\PaymentMethodsController;
+use App\Domains\Receivables\Http\Requests\PaymentMethodRequest;
+use App\Domains\Receivables\Models\PaymentMethod;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
 
