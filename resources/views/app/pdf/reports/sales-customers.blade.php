@@ -1,76 +1,212 @@
-@extends('app.pdf.reports.partials.layout')
+<!DOCTYPE html>
+<html lang="en">
 
-@section('report-title', __('pdf_customer_sales_report'))
-@section('footer-label', __('pdf_total_sales_label'))
+<head>
+    <title>@lang('pdf_sales_customers_label')</title>
+    <style type="text/css">
+        body {
+            font-family: "DejaVu Sans";
+        }
 
-{{-- Block form rather than the inline @section($name, $value) one: the inline
-     form escapes what it is given, and format_money_pdf() returns markup. --}}
-@section('footer-value'){!! format_money_pdf($totalAmount, $currency) !!}@endsection
+        table {
+            border-collapse: collapse;
+        }
 
-@section('report-body')
-    {{-- A section is only worth a heading and a total if the customer has
-         documents in the range. The controller narrows the customer list and the
-         invoices relation in two separate places, and this report reads only the
-         relation, so it decides on that rather than trusting the two to agree.
-         Filtering here rather than in the controller also keeps the shared view
-         data identical for custom templates. --}}
-    @php
-        $customersWithSales = $customers->filter(fn ($customer) => $customer->invoices->isNotEmpty());
-    @endphp
+        .sub-container {
+            padding: 0px 20px;
+        }
 
-    @forelse ($customersWithSales as $customer)
-        <div class="report-section">
-            <p class="report-section-heading">{{ $customer->name }}</p>
-            <table class="report-table">
-                <thead>
-                    <tr>
-                        <th class="report-col-date">@lang('pdf_report_date_label')</th>
-                        <th>@lang('pdf_report_document_label')</th>
-                        <th class="report-amount report-col-amount">@lang('pdf_amount_label')</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($customer->invoices as $invoice)
-                        <tr>
-                            <td>{{ $invoice->formattedInvoiceDate }}</td>
-                            {{-- A credit note is an invoice row of another type, and it stays in
-                                 the totals because a reversal netting the sale out is correct.
-                                 The tag is only so the line is not read as a sale. It reuses the
-                                 document's own label rather than a report-local key: every
-                                 pdf_*credit* key has to exist in the shipped locales, and that
-                                 one already does. --}}
-                            <td>
-                                {{ $invoice->invoice_number }}
-                                @if ($invoice->isCreditNote())
-                                    <span class="report-muted">@lang('pdf_credit_note_label')</span>
-                                @endif
-                            </td>
-                            <td class="report-amount">{!! format_money_pdf($invoice->base_total, $currency) !!}</td>
-                        </tr>
-                    @endforeach
-                    <tr class="report-total-row">
-                        <td class="report-total" colspan="2">@lang('pdf_total')</td>
-                        <td class="report-amount report-total">{!! format_money_pdf($customer->totalAmount, $currency) !!}</td>
-                    </tr>
-                </tbody>
+        .report-header {
+            width: 100%;
+        }
+
+        .heading-text {
+            font-weight: bold;
+            font-size: 24px;
+            color: #5851D8;
+            width: 100%;
+            text-align: left;
+            padding: 0px;
+            margin: 0px;
+        }
+
+        .heading-date-range {
+            font-weight: normal;
+            font-size: 15px;
+            color: #A5ACC1;
+            width: 100%;
+            text-align: right;
+            padding: 0px;
+            margin: 0px;
+        }
+
+        .sub-heading-text {
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            color: #595959;
+            padding: 0px;
+            margin: 0px;
+            margin-top: 30px;
+        }
+
+        .sales-customer-name {
+            margin-top: 20px;
+            padding-left: 3px;
+            font-size: 16px;
+            line-height: 21px;
+            color: #040405;
+        }
+
+        .sales-table-container {
+            padding-left: 10px;
+        }
+
+        .sales-table {
+            width: 100%;
+            padding-bottom: 10px;
+        }
+
+        .sales-information-text {
+            padding: 0px;
+            margin: 0px;
+            font-size: 14px;
+            line-height: 21px;
+            color: #595959;
+        }
+
+        .sales-amount {
+            padding: 0px;
+            margin: 0px;
+            font-size: 14px;
+            line-height: 21px;
+            text-align: right;
+            color: #595959;
+        }
+
+        .sales-total-indicator-table {
+            border-top: 1px solid #EAF1FB;
+            width: 100%;
+        }
+
+        .sales-total-cell {
+            padding-top: 10px;
+        }
+
+        .sales-total-amount {
+            padding-top: 10px;
+            padding-right: 30px;
+            padding: 0px;
+            margin: 0px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            text-align: right;
+            color: #040405;
+        }
+
+        .report-footer {
+            width: 100%;
+            margin-top: 40px;
+            padding: 15px 20px;
+            background: #F9FBFF;
+            box-sizing: border-box;
+        }
+
+        .report-footer-label {
+            padding: 0px;
+            margin: 0px;
+            text-align: left;
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            color: #595959;
+        }
+
+        .report-footer-value {
+            padding: 0px;
+            margin: 0px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 20px;
+            line-height: 21px;
+            color: #5851D8;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+    </style>
+
+    @if (App::isLocale('th'))
+    @include('app.pdf.locale.th')
+    @endif
+</head>
+
+<body>
+    <div class="sub-container">
+        <table class="report-header">
+            <tr>
+                <td>
+                    <p class="heading-text">{{ $company->name }}</p>
+                </td>
+                <td>
+                    <p class="heading-date-range">{{ $from_date }} - {{ $to_date }}</p>
+                </td>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <p class="sub-heading-text text-center">@lang('pdf_customer_sales_report')</p>
+                </td>
+            </tr>
+        </table>
+
+        @foreach ($customers as $customer)
+        <p class="sales-customer-name">{{ $customer->name }}</p>
+        <div class="sales-table-container">
+            <table class="sales-table">
+                @foreach ($customer->invoices as $invoice)
+                <tr>
+                    <td>
+                        <p class="sales-information-text">
+                            {{ $invoice->formattedInvoiceDate }} ({{ $invoice->invoice_number }})
+                        </p>
+                    </td>
+                    <td>
+                        <p class="sales-amount">
+                            {!! format_money_pdf($invoice->base_total, $currency) !!}
+                        </p>
+                    </td>
+                </tr>
+                @endforeach
             </table>
         </div>
-    @empty
-        <div class="report-section">
-            <table class="report-table">
-                <thead>
-                    <tr>
-                        <th class="report-col-date">@lang('pdf_report_date_label')</th>
-                        <th>@lang('pdf_report_document_label')</th>
-                        <th class="report-amount report-col-amount">@lang('pdf_amount_label')</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td class="report-muted" colspan="3">@lang('pdf_report_no_records')</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    @endforelse
-@endsection
+        <table class="sales-total-indicator-table">
+            <tr>
+                <td class="sales-total-cell">
+                    <p class="sales-total-amount">
+                        {!! format_money_pdf($customer->totalAmount, $currency) !!}
+                    </p>
+                </td>
+            </tr>
+        </table>
+        @endforeach
+    </div>
+
+
+    <table class="report-footer">
+        <tr>
+            <td>
+                <p class="report-footer-label">@lang('pdf_total_sales_label')</p>
+            </td>
+            <td>
+                <p class="report-footer-value">
+                    {!! format_money_pdf($totalAmount, $currency) !!}
+                </p>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Domains\Accounts\Models\User;
-use App\Domains\Metadata\Models\CustomField;
+use App\Models\CustomField;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CustomFieldFactory extends Factory
@@ -26,11 +26,11 @@ class CustomFieldFactory extends Factory
             'order' => $this->faker->randomDigitNotNull(),
             'is_required' => $this->faker->randomElement([true, false]),
             'model_type' => $this->faker->randomElement(['Customer', 'Invoice', 'Estimate', 'Expense', 'Payment']),
-            'company_id' => User::find(1)->companies()->first()->id,
             'slug' => function (array $item) {
-                return clean_slug($item['model_type'], $item['label'], $item['company_id']);
+                return clean_slug($item['model_type'], $item['label']);
             },
             'type' => $this->faker->randomElement(['Text', 'Textarea', 'Phone', 'URL', 'Number', 'Dropdown', 'Switch', 'Date', 'DateTime', 'Time']),
+            'company_id' => User::find(1)->companies()->first()->id,
         ];
     }
 }

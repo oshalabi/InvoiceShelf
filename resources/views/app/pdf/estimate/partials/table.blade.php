@@ -1,8 +1,3 @@
-{{-- Inset lives on this div, not on the table: the table sets
-     border-collapse: collapse, and padding does not apply to a table in
-     that mode. dompdf applies it anyway, Chromium follows the spec. The hr
-     and the totals block below carry their own insets already. --}}
-<div class="items-table-inset">
 <table width="100%" class="items-table" cellspacing="0" border="0">
     <tr class="item-table-heading-row">
         <th width="2%" class="pr-20 text-right item-table-heading">#</th>
@@ -40,7 +35,7 @@
             </td>
             @foreach($customFields as $field)
                 <td class="text-right item-cell" style="vertical-align: top;">
-                    {{ $item->getFormattedCustomFieldValueBySlug($field->slug) }}
+                    {{ $item->getCustomFieldValueBySlug($field->slug) }}
                 </td>
             @endforeach
             <td
@@ -74,7 +69,6 @@
         @endphp
     @endforeach
 </table>
-</div>
 
 <hr class="item-cell-table-hr">
 

@@ -9,71 +9,58 @@
   <money3
     v-else
     v-model="money"
-    v-bind="{ ...currencyBindings, ...fieldAttrs, ...$attrs }"
+    v-bind="currencyBindings"
     :class="[inputClass, invalidClass]"
     :disabled="disabled"
   />
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
+<script setup>
+import { computed, ref } from 'vue'
 import { Money3Component } from 'v-money3'
-import { useFormField } from '@/scripts/composables/use-form-field'
+import { useCompanyStore } from '@/scripts/admin/stores/company'
 
-import { useCompanyStore } from '@/scripts/stores/company.store'
+let money3 = Money3Component
 
-const money3 = Money3Component
-
-interface Currency {
-  decimal_separator: string
-  thousand_separator: string
-  symbol: string
-  precision: number
-}
-
-interface CurrencyBindings {
-  decimal: string
-  thousands: string
-  prefix: string
-  precision: number
-  masked: boolean
-}
-
-interface Props {
-  contentLoading?: boolean
-  modelValue: string | number
-  invalid?: boolean
-  inputClass?: string
-  disabled?: boolean
-  percent?: boolean
-  currency?: Currency | null
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  contentLoading: false,
-  invalid: false,
-  inputClass:
-    'font-base block w-full md:text-sm tabular field-border rounded-lg text-heading',
-  disabled: false,
-  percent: false,
-  currency: null,
+const props = defineProps({
+  contentLoading: {
+    type: Boolean,
+    default: false,
+  },
+  modelValue: {
+    type: [String, Number],
+    required: true,
+    default: '',
+  },
+  invalid: {
+    type: Boolean,
+    default: false,
+  },
+  inputClass: {
+    type: String,
+    default:
+      'font-base block w-full sm:text-sm border-gray-200 rounded-md text-black',
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  percent: {
+    type: Boolean,
+    default: false,
+  },
+  currency: {
+    type: Object,
+    default: null,
+  },
 })
-
-interface Emits {
-  (e: 'update:modelValue', value: string | number): void
-}
-
-const emit = defineEmits<Emits>()
+const emit = defineEmits(['update:modelValue'])
 const companyStore = useCompanyStore()
-
-defineOptions({ inheritAttrs: false })
-
-const { attrs: fieldAttrs } = useFormField({ invalid: () => props.invalid })
 let hasInitialValueSet = false
 
-const money = computed<string | number>({
+const money = computed({
   get: () => props.modelValue,
-  set: (value: string | number) => {
+  set: (value) => {
     if (!hasInitialValueSet) {
       hasInitialValueSet = true
       return
@@ -83,8 +70,8 @@ const money = computed<string | number>({
   },
 })
 
-const currencyBindings = computed<CurrencyBindings>(() => {
-  const currency: Currency = props.currency
+const currencyBindings = computed(() => {
+  const currency = props.currency
     ? props.currency
     : companyStore.selectedCompanyCurrency
 
@@ -97,10 +84,10 @@ const currencyBindings = computed<CurrencyBindings>(() => {
   }
 })
 
-const invalidClass = computed<string>(() => {
+const invalidClass = computed(() => {
   if (props.invalid) {
-    return 'border-danger focus:border-danger focus:ring-danger/20'
+    return 'border-red-500 ring-red-500 focus:ring-red-500 focus:border-red-500'
   }
-  return ''
+  return 'focus:ring-primary-400 focus:border-primary-400'
 })
 </script>

@@ -1,0 +1,152 @@
+<?php
+
+namespace App\Http\Requests;
+
+use App\Models\CompanySetting;
+use App\Models\Customer;
+use App\Models\RecurringInvoice;
+use App\Support\DocumentTotals;
+use App\Support\MoneyConversion;
+use Illuminate\Foundation\Http\FormRequest;
+
+class RecurringInvoiceRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     */
+    public function rules(): array
+    {
+        $companyCurrency = CompanySetting::getSetting('currency', $this->header('company'));
+
+        $rules = [
+            'starts_at' => [
+                'required',
+            ],
+            'send_automatically' => [
+                'required',
+                'boolean',
+            ],
+            'customer_id' => [
+                'required',
+            ],
+            'exchange_rate' => [
+                'nullable',
+            ],
+            'discount' => [
+                'numeric',
+                'required',
+            ],
+            'discount_val' => [
+                'integer',
+                'required',
+            ],
+            'sub_total' => [
+                'integer',
+                'required',
+            ],
+            'total' => [
+                'integer',
+                'max:999999999999',
+                'required',
+            ],
+            'tax' => [
+                'required',
+            ],
+            'status' => [
+                'required',
+            ],
+            'exchange_rate' => [
+                'nullable',
+            ],
+            'frequency' => [
+                'required',
+            ],
+            'limit_by' => [
+                'required',
+            ],
+            'limit_count' => [
+                'required_if:limit_by,COUNT',
+            ],
+            'limit_date' => [
+                'required_if:limit_by,DATE',
+            ],
+            'items' => [
+                'required',
+            ],
+            'items.*' => [
+                'required',
+            ],
+        ];
+
+        $customer = Customer::find($this->customer_id);
+
+        if ($customer && $companyCurrency) {
+            if ((string) $customer->currency_id !== $companyCurrency) {
+                $rules['exchange_rate'] = [
+                    'required',
+                ];
+            }
+        }
+
+        return $rules;
+    }
+
+    public function getRecurringInvoicePayload()
+    {
+        $company_currency = CompanySetting::getSetting('currency', $this->header('company'));
+        $current_currency = $this->currency_id;
+        $exchange_rate = $company_currency != $current_currency ? $this->exchange_rate : 1;
+        $currency = Customer::find($this->customer_id)->currency_id;
+
+        // Counted like every later run: from now, or from the start date while
+        // that is still ahead, in the company's time zone. Counting from the
+        // start date put an edited schedule's next run back in the past, and
+        // recurring-invoices:generate bills any run that is in the past.
+        $nextInvoiceAt = RecurringInvoice::getNextInvoiceDate(
+            $this->frequency,
+            RecurringInvoice::runCountsFrom($this->starts_at),
+            CompanySetting::getSetting('time_zone', $this->header('company')) ?: null
+        );
+
+        $tax_per_item = CompanySetting::getSetting('tax_per_item', $this->header('company')) ?? 'NO ';
+        $discount_per_item = CompanySetting::getSetting('discount_per_item', $this->header('company')) ?? 'NO';
+
+        // Recompute totals server-side from the line items (GHSA-8c69). The
+        // recurring template totals propagate to every generated invoice.
+        $totals = DocumentTotals::compute(
+            $this->items ?? [],
+            $this->taxes ?? [],
+            $this->discount_val,
+            $tax_per_item,
+            (bool) $this->tax_included,
+            $discount_per_item
+        );
+
+        return collect($this->except('items', 'taxes'))
+            ->merge([
+                'creator_id' => $this->user()->id,
+                'company_id' => $this->header('company'),
+                'next_invoice_at' => $nextInvoiceAt,
+                'tax_per_item' => $tax_per_item,
+                'discount_per_item' => $discount_per_item,
+                'sub_total' => $totals['sub_total'],
+                'total' => $totals['total'],
+                'tax' => $totals['tax'],
+                'due_amount' => $totals['total'],
+                'exchange_rate' => $exchange_rate,
+                'base_sub_total' => MoneyConversion::toBaseMinor($totals['sub_total'], $exchange_rate),
+                'base_total' => MoneyConversion::toBaseMinor($totals['total'], $exchange_rate),
+                'base_tax' => MoneyConversion::toBaseMinor($totals['tax'], $exchange_rate),
+                'currency_id' => $currency,
+            ])
+            ->toArray();
+    }
+}

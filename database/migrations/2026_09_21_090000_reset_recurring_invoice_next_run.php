@@ -1,19 +1,16 @@
 <?php
 
-use App\Domains\Sales\Models\RecurringInvoice;
+use App\Models\RecurringInvoice;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Put every schedule's next run back in the future.
+ * Put every schedule's next run back where it belongs.
  *
- * `updateNextInvoiceDate()` used to recompute the date from `starts_at`, so
- * `next_invoice_at` was pinned to the first occurrence after the start date
- * and never moved again. Generation did not read the column, so the wrong
- * value only showed on screen. It does read it now, which makes those stale
- * dates dangerous: a schedule that started two years ago would look overdue
- * by every period since. Recomputing from today means the missed periods are
- * skipped rather than billed in a rush.
+ * updateNextInvoiceDate() used to recompute the date from starts_at, so
+ * next_invoice_at was pinned to the first occurrence after the schedule began
+ * and never moved again. The column is what the schedule screen shows, so it
+ * has been wrong on every schedule that has ever generated an invoice.
  */
 return new class extends Migration
 {
@@ -32,9 +29,7 @@ return new class extends Migration
                         $recurringInvoice->updateNextInvoiceDate();
                     } catch (Throwable $exception) {
                         // A row whose cron expression no longer parses cannot be
-                        // rescheduled here, and must not stop the migration. It
-                        // stays as it was, and its schedule screen keeps showing
-                        // the old date until someone edits the frequency.
+                        // rescheduled here and must not stop the migration.
                         continue;
                     }
                 }
@@ -42,8 +37,7 @@ return new class extends Migration
     }
 
     /**
-     * Irreversible by design: the previous values were wrong, and the dates
-     * they would be restored to are derivable from `starts_at` anyway.
+     * Irreversible by design: the previous values were wrong.
      */
     public function down(): void {}
 };

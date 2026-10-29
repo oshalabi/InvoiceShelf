@@ -1,160 +1,33 @@
-<script setup lang="ts">
-import { computed, reactive, ref, nextTick, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useUserStore } from '@/scripts/stores/user.store'
-import { useModalStore } from '@/scripts/stores/modal.store'
-import { useItemStore } from '@/scripts/features/company/items/store'
-import { ABILITIES } from '@/scripts/config/abilities'
-import type { Item } from '@/scripts/types/domain'
-import type { Tax } from '@/scripts/types/domain'
-
-interface LineItem {
-  item_id: number | null
-  name: string
-  description: string | null
-  [key: string]: unknown
-}
-
-interface Props {
-  contentLoading?: boolean
-  type?: string | null
-  item: LineItem
-  index?: number
-  invalid?: boolean
-  invalidDescription?: boolean
-  taxPerItem?: string
-  taxes?: Tax[] | null
-  store?: { deselectItem: (index: number) => void } | null
-  storeProp?: string
-}
-
-interface Emits {
-  (e: 'search', val: string): void
-  (e: 'select', val: Item): void
-  (e: 'deselect', index: number): void
-  (e: 'update:description', value: string): void
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  contentLoading: false,
-  type: null,
-  index: 0,
-  invalid: false,
-  invalidDescription: false,
-  taxPerItem: '',
-  taxes: null,
-  store: null,
-  storeProp: '',
-})
-
-const emit = defineEmits<Emits>()
-
-const userStore = useUserStore()
-const modalStore = useModalStore()
-const itemStore = useItemStore()
-const { t } = useI18n()
-
-const itemSelect = ref<Item | null>(null)
-const multiselectRef = ref<{ close?: () => void } | null>(null)
-const loading = ref<boolean>(false)
-const searchQuery = ref<string>('')
-const itemData = reactive<LineItem>({ ...props.item })
-
-async function searchItems(search: string): Promise<Item[]> {
-  const res = await itemStore.fetchItems({ search })
-  return res.data as unknown as Item[]
-}
-
-function onSearchChange(val: string): void {
-  searchQuery.value = val
-  emit('search', val)
-}
-
-const description = computed<string | null>({
-  get: () => props.item.description,
-  set: (value: string | null) => {
-    emit('update:description', value ?? '')
-  },
-})
-
-function openItemModal(): void {
-  // Close the multiselect dropdown before opening the modal
-  ;(document.activeElement as HTMLElement)?.blur()
-
-  nextTick(() => {
-    modalStore.openModal({
-      title: t('items.add_item'),
-      componentName: 'ItemModal',
-      refreshData: (val: Item) => emit('select', val),
-      // ItemModal owns its own form; hand it the typed search text to pre-fill the name.
-      data: {
-        name: searchQuery.value,
-      },
-    })
-  })
-}
-
-const root = ref<HTMLElement | null>(null)
-
-// Picking or clearing swaps the field that had focus; focus follows to the
-// description after a pick and back to the search after a clear
-let focusAfterChange = false
-
-function onPick(val: Item): void {
-  focusAfterChange = true
-  emit('select', val)
-}
-
-watch(
-  () => props.item.item_id,
-  async (id, previous) => {
-    if (!focusAfterChange || id === previous) {
-      return
-    }
-
-    focusAfterChange = false
-    await nextTick()
-    root.value
-      ?.querySelector<HTMLElement>(id ? 'textarea' : 'input[role="combobox"], [role="combobox"]')
-      ?.focus()
-  },
-)
-
-function deselectItem(index: number): void {
-  focusAfterChange = true
-
-  if (props.store) {
-    props.store.deselectItem(index)
-  }
-  emit('deselect', index)
-}
-</script>
-
 <template>
-  <div ref="root" class="flex-1 text-sm">
+  <div class="flex-1 text-sm">
     <!-- Selected Item Field  -->
     <div
       v-if="item.item_id"
-      class="relative flex items-center h-11 ps-3 pe-11 font-medium border rounded-lg md:h-10 bg-surface-muted border-line-default text-heading"
+      class="
+        relative
+        flex
+        items-center
+        h-10
+        pl-2
+        bg-gray-200
+        border border-gray-200 border-solid
+        rounded
+      "
     >
-      <span class="truncate">{{ item.name }}</span>
+      {{ item.name }}
 
-      <button
-        type="button"
-        class="absolute inset-y-0 end-0 flex items-center justify-center w-10 rounded-e-lg text-subtle hover:text-heading"
-        :aria-label="$t('general.deselect')"
+      <span
+        class="absolute text-gray-400 cursor-pointer top-[8px] right-[10px]"
         @click="deselectItem(index)"
       >
-        <BaseIcon name="XCircleIcon" class="w-5 h-5" />
-      </button>
+        <BaseIcon name="XCircleIcon" />
+      </span>
     </div>
 
     <!-- Select Item Field -->
     <BaseMultiselect
       v-else
-      ref="multiselectRef"
       v-model="itemSelect"
-      :aria-label="$t('invoices.item.select_an_item')"
       :content-loading="contentLoading"
       value-prop="id"
       track-by="name"
@@ -162,24 +35,24 @@ function deselectItem(index: number): void {
       preserve-search
       :initial-search="itemData.name"
       label="name"
-      :filter-results="false"
+      :filterResults="false"
       resolve-on-load
       :delay="500"
       searchable
       :options="searchItems"
       object
-      @update:model-value="onPick"
-      @search-change="onSearchChange"
+      @update:modelValue="(val) => $emit('select', val)"
+      @searchChange="(val) => $emit('search', val)"
     >
       <!-- Add Item Action  -->
       <template #action>
         <BaseSelectAction
-          v-if="userStore.hasAbilities(ABILITIES.CREATE_ITEM)"
+          v-if="userStore.hasAbilities(abilities.CREATE_ITEM)"
           @click="openItemModal"
         >
           <BaseIcon
             name="PlusCircleIcon"
-            class="h-4 me-2 -ms-2 text-center text-primary-400"
+            class="h-4 mr-2 -ml-2 text-center text-primary-400"
           />
           {{ $t('general.add_new_item') }}
         </BaseSelectAction>
@@ -205,3 +78,116 @@ function deselectItem(index: number): void {
     </div>
   </div>
 </template>
+
+<script setup>
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
+import { useEstimateStore } from '@/scripts/admin/stores/estimate'
+import { useInvoiceStore } from '@/scripts/admin/stores/invoice'
+import { useItemStore } from '@/scripts/admin/stores/item'
+import { useModalStore } from '@/scripts/stores/modal'
+import { useUserStore } from '@/scripts/admin/stores/user'
+import abilities from '@/scripts/admin/stub/abilities'
+
+const props = defineProps({
+  contentLoading: {
+    type: Boolean,
+    default: false,
+  },
+  type: {
+    type: String,
+    default: null,
+  },
+  item: {
+    type: Object,
+    required: true,
+  },
+  index: {
+    type: Number,
+    default: 0,
+  },
+  invalid: {
+    type: Boolean,
+    required: false,
+    default: false,
+  },
+  invalidDescription: {
+    type: Boolean,
+    required: false,
+    default: false,
+  },
+  taxPerItem: {
+    type: String,
+    default: '',
+  },
+  taxes: {
+    type: Array,
+    default: null,
+  },
+  store: {
+    type: Object,
+    default: null,
+  },
+  storeProp: {
+    type: String,
+    default: '',
+  },
+})
+
+const emit = defineEmits(['search', 'select'])
+
+const itemStore = useItemStore()
+const estimateStore = useEstimateStore()
+const invoiceStore = useInvoiceStore()
+const modalStore = useModalStore()
+const userStore = useUserStore()
+
+let route = useRoute()
+const { t } = useI18n()
+
+const itemSelect = ref(null)
+const loading = ref(false)
+let itemData = reactive({ ...props.item })
+Object.assign(itemData, props.item)
+
+const taxAmount = computed(() => {
+  return 0
+})
+
+const description = computed({
+  get: () => props.item.description,
+  set: (value) => {
+    props.store[props.storeProp].items[props.index].description = value
+  },
+})
+
+async function searchItems(search) {
+  let res = await itemStore.fetchItems({ search })
+  return res.data.data
+}
+
+function onTextChange(val) {
+  searchItems(val)
+  emit('search', val)
+}
+
+function openItemModal() {
+  modalStore.openModal({
+    title: t('items.add_item'),
+    componentName: 'ItemModal',
+    refreshData: (val) => emit('select', val),
+    data: {
+      taxPerItem: props.taxPerItem,
+      taxes: props.taxes,
+      itemIndex: props.index,
+      store: props.store,
+      storeProps: props.storeProp,
+    },
+  })
+}
+
+function deselectItem(index) {
+  props.store.deselectItem(index)
+}
+</script>

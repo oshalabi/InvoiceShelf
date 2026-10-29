@@ -1,128 +1,33 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
-    <img src="resources/static/img/logo-full.svg" alt="InvoiceShelf" width="232">
-  </picture>
-</p>
+# InvoiceShelf
 
-<p align="center">
-  Open-source invoicing for people who want to own their business data.
-</p>
+InvoiceShelf is an open-source web application for creating invoices and estimates,
+tracking payments, and managing expenses.
 
-<p align="center">
-  <a href="https://invoiceshelf.com/download"><strong>Download InvoiceShelf</strong></a>
-  ·
-  <a href="https://demo.invoiceshelf.com/"><strong>Try the live demo</strong></a>
-  ·
-  <a href="https://docs.invoiceshelf.com/">Documentation</a>
-  ·
-  <a href="https://discord.gg/eHXf4zWhsR">Join Discord</a>
-</p>
+## Stable v2 maintenance
 
-> [!WARNING]
-> The default `3.x` branch is an alpha preview. It is ready for testing and
-> feedback, but not for production data. Use the supported
-> [`2.x` release](https://github.com/InvoiceShelf/InvoiceShelf/tree/2.x) for a
-> production installation.
+This branch is the stable InvoiceShelf v2 line. It receives security patches only
+through **2027-09-01**; new feature development is focused on the next
+major version.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/dashboard-dark.webp">
-  <img alt="The InvoiceShelf dashboard: what customers owe, split into overdue and due soon, and a year of sales, receipts and expenses" src=".github/assets/dashboard-light.webp">
-</picture>
+## Documentation and support
 
-## Run your invoicing from one place
+- [Download the stable release](https://invoiceshelf.com/download)
+- [Documentation](https://docs.invoiceshelf.com/)
+- [Production Docker images](https://github.com/InvoiceShelf/docker)
+- [Community Discord](https://discord.gg/eHXf4zWhsR)
 
-InvoiceShelf is a self-hosted web application for creating invoices, tracking
-payments and expenses, and keeping customer accounts organised. It is built for
-freelancers and small businesses that want a focused workflow without giving up
-control of their data.
+For a local contributor environment, see [the development environment guide](docker/development/README.md).
 
-Want to look around before installing? The [public demo](https://demo.invoiceshelf.com/)
-includes sample data and resets automatically.
+## Contributing
 
-- Create invoices and estimates, then export polished PDFs.
-- Record payments and see what each customer still owes.
-- Track expenses, taxes, and business reports.
-- Schedule recurring invoices for repeat work.
-- Give customers a portal for invoices, estimates, and payment history.
-- Manage multiple companies and invite team members with scoped roles.
-- Issue EN 16931 e-invoices: ZUGFeRD / Factur-X PDFs with the e-invoice XML
-  embedded (3.x, with the official E-Invoicing module).
+Contributions that support v2 security maintenance and documentation are welcome.
+See the [contribution guide](.github/CONTRIBUTING.md) before opening a pull
+request.
 
-Optional official modules can add specialised features without making the core
-application heavier.
+## Translations
 
-### E-invoicing
-
-InvoiceShelf 3.x issues e-invoices to the European standard EN 16931 through
-the official [E-Invoicing module](https://github.com/InvoiceShelf/module-e-invoicing):
-
-- An invoice's PDF becomes a **ZUGFeRD / Factur-X** hybrid e-invoice, a
-  PDF/A-3 file with the EN 16931 XML inside that accounting software reads.
-  This meets the German B2B e-invoicing rules and is one of the formats the
-  French reform accepts.
-- The XML can also be downloaded on its own, for portals that take a file.
-- Each invoice shows whether it qualifies and, if not, exactly what is missing.
-- Tax types carry their EN 16931 tax category and units their UN/ECE unit code.
-
-It needs the Gotenberg PDF driver. UBL formats (Peppol BIS Billing, XRechnung
-UBL) and sending through Peppol are planned.
-
-## Install InvoiceShelf
-
-### Production: InvoiceShelf 2.x
-
-Install the current stable release from the
-[self-hosted download page](https://invoiceshelf.com/download), or run the
-official Docker image with the `:latest` tag. Follow the
-[installation guide](https://docs.invoiceshelf.com/installation.html) for the
-complete setup and upgrade instructions.
-
-### Preview: InvoiceShelf 3.x
-
-Use the preview only with disposable or backed-up data:
-
-- Download the latest 3.x preview from the
-  [self-hosted download page](https://invoiceshelf.com/download).
-- For Docker, use `invoiceshelf/invoiceshelf:next` instead of `:latest` in the
-  [official Compose setup](https://github.com/InvoiceShelf/docker).
-
-A minimal SQLite Docker setup looks like this:
-
-```bash
-git clone https://github.com/InvoiceShelf/docker.git invoiceshelf
-cd invoiceshelf
-cp docker-compose.sqlite.yml docker-compose.yml
-# For the 3.x preview, change the image tag in docker-compose.yml to :next.
-docker compose up -d
-```
-
-Open <http://localhost:8090> and finish the setup wizard. Read the
-[Docker guide](https://docs.invoiceshelf.com/install/docker.html) before using
-InvoiceShelf on a public server.
-
-For a traditional web-server installation, see the
-[manual installation guide](https://docs.invoiceshelf.com/install/manual.html).
-InvoiceShelf 3.x requires PHP 8.4 or 8.5 and supports MySQL/MariaDB,
-PostgreSQL, and SQLite. Docker includes the required application runtime.
-
-## Learn and get help
-
-- [User and installation documentation](https://docs.invoiceshelf.com/)
-- [API reference](https://api-docs.invoiceshelf.com/)
-- [Discord community](https://discord.gg/eHXf4zWhsR)
-- [Bug reports and feature requests](https://github.com/InvoiceShelf/InvoiceShelf/issues)
-
-## Contribute
-
-Code contributions are welcome. Start with the
-[contribution guide](CONTRIBUTING.md) and use the development environment in
-[`docker/development`](docker/development/README.md).
-
-You can also help translate InvoiceShelf on
-[Crowdin](https://crowdin.com/project/invoiceshelf).
+Help translate InvoiceShelf on [Crowdin](https://crowdin.com/project/invoiceshelf).
 
 ## License
 
-InvoiceShelf is released under the
-[GNU Affero General Public License v3.0](LICENSE).
+InvoiceShelf is licensed under the [GNU Affero General Public License v3.0](LICENSE).

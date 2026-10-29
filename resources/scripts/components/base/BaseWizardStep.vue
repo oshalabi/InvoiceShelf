@@ -1,40 +1,40 @@
-<script setup lang="ts">
-
-interface Props {
-  title?: string | null
-  description?: string | null
-  stepContainerClass?: string
-  stepTitleClass?: string
-  stepDescriptionClass?: string
-}
-
-/**
- * The wizard step lives inside InstallationLayout's card chrome, so the
- * container itself is just a content wrapper — no extra background, border,
- * or rounding. Earlier defaults included those, which created a visible
- * card-inside-a-card when used inside the layout.
- */
-withDefaults(defineProps<Props>(), {
-  title: null,
-  description: null,
-  stepContainerClass: 'w-full',
-  stepTitleClass: 'text-2xl not-italic font-semibold leading-7 text-heading',
-  stepDescriptionClass:
-    'mt-2 mb-6 text-sm not-italic leading-relaxed text-muted',
-})
-</script>
-
 <template>
   <div :class="stepContainerClass">
-    <header v-if="title || description" class="mb-6">
-      <!-- The step is the page, so its title is the page's heading -->
-      <h1 v-if="title" :class="stepTitleClass">
+    <div v-if="title || description">
+      <p v-if="title" :class="stepTitleClass">
         {{ title }}
-      </h1>
+      </p>
       <p v-if="description" :class="stepDescriptionClass">
         {{ description }}
       </p>
-    </header>
+    </div>
     <slot />
   </div>
 </template>
+
+<script setup>
+const props = defineProps({
+  title: {
+    type: String,
+    default: null,
+  },
+  description: {
+    type: String,
+    default: null,
+  },
+  stepContainerClass: {
+    type: String,
+    default:
+      'w-full p-8 mb-8 bg-white border border-gray-200 border-solid rounded',
+  },
+  stepTitleClass: {
+    type: String,
+    default: 'text-2xl not-italic font-semibold leading-7 text-black',
+  },
+  stepDescriptionClass: {
+    type: String,
+    default:
+      'w-full mt-2.5 mb-8 text-sm not-italic leading-snug text-gray-500 lg:w-7/12 md:w-7/12 sm:w-7/12',
+  },
+})
+</script>

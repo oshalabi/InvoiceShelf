@@ -28,7 +28,8 @@
     {{-- Footer --}}
     @slot('footer')
         @component('mail::footer')
-            Powered by <a class="footer-link" href="https://exactbalance.nl" target="_blank">ExactBalance</a>
+            Powered by <a class="footer-link" href="https://invoiceshelf.com" target="_blank">InvoiceShelf</a>
+        @endcomponent
     @endslot
 @endcomponent
 

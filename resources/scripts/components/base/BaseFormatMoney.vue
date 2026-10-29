@@ -1,31 +1,32 @@
-<script setup lang="ts">
-import { computed } from 'vue'
-import { useCompanyStore } from '@/scripts/stores/company.store'
-import { formatMoney } from '../../utils/format-money'
-import type { CurrencyConfig } from '../../utils/format-money'
+<template>
+  <span style="font-family: sans-serif">{{ formattedAmount }}</span>
+</template>
 
-interface Props {
-  amount: number | string
-  currency?: CurrencyConfig | null
-  /** Proportional figures for a standalone headline amount; columns keep tabular ones */
-  proportional?: boolean
-}
+<script setup>
+import { useCompanyStore } from '@/scripts/admin/stores/company'
+import { inject, computed } from 'vue'
 
-const props = withDefaults(defineProps<Props>(), {
-  currency: null,
-  proportional: false,
+const props = defineProps({
+  amount: {
+    type: [Number, String],
+    required: true,
+  },
+  currency: {
+    type: Object,
+    default: () => {
+      return null
+    },
+  },
 })
+
+const utils = inject('utils')
 
 const companyStore = useCompanyStore()
 
-const formattedAmount = computed<string>(() => {
-  const amountNum = typeof props.amount === 'string' ? Number(props.amount) : props.amount
-  const currencyConfig = props.currency ?? companyStore.selectedCompanyCurrency
-  return formatMoney(amountNum, currencyConfig ?? undefined)
+const formattedAmount = computed(() => {
+  return utils.formatMoney(
+    props.amount,
+    props.currency || companyStore.selectedCompanyCurrency
+  )
 })
 </script>
-
-<template>
-  <!-- Formatted left to right, so it stays that way inside right-to-left text -->
-  <span :class="proportional ? '' : 'tabular'" class="whitespace-nowrap" dir="ltr">{{ formattedAmount }}</span>
-</template>

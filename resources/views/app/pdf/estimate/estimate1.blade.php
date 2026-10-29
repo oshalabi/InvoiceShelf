@@ -5,12 +5,16 @@
     <title>@lang('pdf_estimate_label') - {{ $estimate->estimate_number }}</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 
-@include("app.pdf.partials.fonts")
-
     <style type="text/css">
         /* -- Base -- */
         body {
+            font-family: "DejaVu Sans";
+        }
+
+        html {
             margin: 0px;
+            padding: 0px;
+            margin-top: 50px;
         }
 
         table {
@@ -26,12 +30,11 @@
         /* -- Header -- */
 
         .header-container {
-            position: relative;
+            position: absolute;
             width: 100%;
             height: 90px;
             left: 0px;
-            top: 0px;
-            margin-bottom: -40px;
+            top: -50px;
         }
 
         .header-bottom-divider {
@@ -204,23 +207,9 @@
 
         /* -- Items Table -- */
 
-        /* The items table sets border-collapse: collapse, and padding does not
-           apply to a table in that mode. dompdf applies it anyway, Chromium
-           follows the spec and drops it, which put the two renderers 22.5pt
-           apart on each side. All of the table's spacing lives on this wrapper
-           instead -- a plain block, honoured identically by both. Padding rather
-           than margin so nothing collapses through it either. */
-        .items-table-wrapper {
-            padding-top: 35px;
-            padding-bottom: 10px;
-        }
-
-        .items-table-inset {
-            padding-left: 30px;
-            padding-right: 30px;
-        }
-
         .items-table {
+            margin-top: 35px;
+            padding: 0px 30px 10px 30px;
             page-break-before: avoid;
             page-break-after: auto;
         }
@@ -396,22 +385,11 @@
             padding-left: 0;
         }
 
-        /* The address formats emit <h3>{NAME}</h3> ahead of the <br>-joined
-           lines. Left to the user-agent default its margins differ between
-           dompdf and Chromium -- the construct where the two renderers drift
-           apart vertically -- and the extra top margin also pushes the company
-           column out of line with the Bill to / Ship to columns beside it.
-           Pinning both margins fixes the alignment and removes the divergence. */
-        .company-address h3,
-        .customer-address-container h3,
-        .billing-address h3,
-        .shipping-address h3 {
-            margin-top: 0;
-            margin-bottom: 6px;
-        }
-
     </style>
 
+    @if (App::isLocale('th'))
+        @include('app.pdf.locale.th')
+    @endif
 </head>
 
 <body>
@@ -420,7 +398,7 @@
             <tr>
                 <td class="text-center">
                     @if ($logo)
-                        <img class="header-logo" style="height:50px" src="{{ \App\Platform\Pdf\Rendering\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
+                        <img class="header-logo" style="height:50px" src="{{ \App\Space\ImageUtils::toBase64Src($logo) }}" alt="Company Logo">
                     @else
                         @if ($estimate->customer->company)
                             <h2 class="header-logo"> {{ $estimate->customer->company->name }} </h2>
@@ -452,7 +430,6 @@
                         <td class="attribute-label">@lang('pdf_estimate_expire_date')</td>
                         <td class="attribute-value"> &nbsp;{{ $estimate->formattedExpiryDate }}</td>
                     </tr>
-                    @include('app.pdf.partials.document-custom-fields', ['document' => $estimate])
                 </table>
             </div>
             <div style="clear: both;"></div>
@@ -480,7 +457,7 @@
             <div style="clear: both;"></div>
         </div>
 
-        <div class="items-table-wrapper" style="position:relative">
+        <div style="position:relative">
             @include('app.pdf.estimate.partials.table')
         </div>
 

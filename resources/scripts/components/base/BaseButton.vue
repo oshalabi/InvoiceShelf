@@ -1,136 +1,127 @@
-<script setup lang="ts">
-import { computed, inject, ref, useAttrs, useSlots } from 'vue'
-import type { Ref } from 'vue'
+<script setup>
+import { computed, ref } from 'vue'
 import SpinnerIcon from '@/scripts/components/icons/SpinnerIcon.vue'
-
-type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-type ButtonVariant =
-  | 'primary'
-  | 'secondary'
-  | 'primary-outline'
-  | 'white'
-  | 'danger'
-  | 'gray'
-
-interface Props {
-  contentLoading?: boolean
-  defaultClass?: string
-  tag?: string
-  disabled?: boolean
-  rounded?: boolean
-  loading?: boolean
-  size?: ButtonSize
-  variant?: ButtonVariant
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  contentLoading: false,
-  defaultClass:
-    'inline-flex items-center justify-center whitespace-nowrap border font-medium transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-55 disabled:cursor-not-allowed',
-  tag: 'button',
-  disabled: false,
-  rounded: false,
-  loading: false,
-  size: 'md',
-  variant: 'primary',
+const props = defineProps({
+  contentLoading: {
+    type: Boolean,
+    default: false,
+  },
+  defaultClass: {
+    type: String,
+    default:
+      'inline-flex whitespace-nowrap items-center border font-medium focus:outline-hidden focus:ring-2 focus:ring-offset-2',
+  },
+  tag: {
+    type: String,
+    default: 'button',
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  rounded: {
+    type: Boolean,
+    default: false,
+  },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
+  size: {
+    type: String,
+    default: 'md',
+    validator: function (value) {
+      return ['xs', 'sm', 'md', 'lg', 'xl'].indexOf(value) !== -1
+    },
+  },
+  variant: {
+    type: String,
+    default: 'primary',
+    validator: function (value) {
+      return (
+        [
+          'primary',
+          'secondary',
+          'primary-outline',
+          'white',
+          'danger',
+          'gray',
+        ].indexOf(value) !== -1
+      )
+    },
+  },
 })
 
-const slots = useSlots()
-const attrs = useAttrs()
-
-// Inside a page header on a phone, a button with an icon shows only the icon;
-// its label stays in the markup for screen readers. A form's submit button
-// keeps its label: "Save" is not something to guess from an icon.
-const inCompactHeader = inject<Ref<boolean>>('pageHeaderCompact', ref(false))
-
-const iconOnly = computed<boolean>(() => {
-  return inCompactHeader.value
-    && attrs.type !== 'submit'
-    && (!!slots.left || !!slots.right)
-})
-
-// Phones get 44px touch targets from md size up; wider screens stay compact.
-const sizeClass = computed<Record<string, boolean> | string>(() => {
-  if (iconOnly.value) {
-    return 'w-10 h-10 p-0 rounded-xl'
-  }
-
+const sizeClass = computed(() => {
   return {
-    'h-7 px-2.5 text-xs rounded-md': props.size === 'xs',
-    'h-8 px-3 text-sm rounded-lg': props.size == 'sm',
-    'h-11 md:h-9 px-3.5 text-sm rounded-lg': props.size === 'md',
-    'h-11 md:h-10 px-4 text-base md:text-sm rounded-lg': props.size === 'lg',
-    'h-12 px-5 text-base rounded-lg': props.size === 'xl',
+    'px-2.5 py-1.5 text-xs leading-4 rounded': props.size === 'xs',
+    'px-3 py-2 text-sm leading-4 rounded-md': props.size == 'sm',
+    'px-4 py-2 text-sm leading-5 rounded-md': props.size === 'md',
+    'px-4 py-2 text-base leading-6 rounded-md': props.size === 'lg',
+    'px-6 py-3 text-base leading-6 rounded-md': props.size === 'xl',
   }
 })
 
-const placeHolderSize = computed<string>(() => {
+const placeHolderSize = computed(() => {
   switch (props.size) {
     case 'xs':
-      return '28'
-    case 'sm':
       return '32'
+    case 'sm':
+      return '38'
     case 'md':
-      return '36'
+      return '42'
     case 'lg':
-      return '40'
+      return '42'
     case 'xl':
-      return '48'
+      return '46'
     default:
       return ''
   }
 })
 
-const variantClass = computed<Record<string, boolean>>(() => {
+const variantClass = computed(() => {
   return {
-    'border-transparent shadow-xs bg-btn-primary text-on-primary hover:bg-btn-primary-hover':
+    'border-transparent shadow-xs text-white bg-primary-600 hover:bg-primary-700 focus:ring-primary-500':
       props.variant === 'primary',
-    'border-transparent bg-primary-50 text-primary-700 hover:bg-primary-100':
+    'border-transparent text-primary-700 bg-primary-100 hover:bg-primary-200 focus:ring-primary-500':
       props.variant === 'secondary',
-    'border-line-default bg-surface text-heading shadow-xs hover:bg-hover hover:border-line-strong':
+    'border-solid border-primary-500 font-normal transition ease-in-out duration-150 text-primary-500 hover:bg-primary-200 shadow-inner focus:ring-primary-500':
       props.variant == 'primary-outline',
-    'border-line-default bg-surface text-body shadow-xs hover:bg-hover hover:text-heading':
+    'border-gray-200 text-gray-700 bg-white hover:bg-gray-50 focus:ring-primary-500 focus:ring-offset-0':
       props.variant == 'white',
-    'border-transparent shadow-xs bg-btn-danger text-white hover:bg-btn-danger-hover':
+    'border-transparent shadow-xs text-white bg-red-600 hover:bg-red-700 focus:ring-red-500':
       props.variant === 'danger',
-    'border-transparent bg-surface-muted text-body hover:bg-hover-strong':
+    'border-transparent bg-gray-200 border hover:bg-gray-200/60 focus:ring-gray-500 focus:ring-offset-0':
       props.variant === 'gray',
   }
 })
 
-const roundedClass = computed<string>(() => {
+const roundedClass = computed(() => {
   return props.rounded ? '!rounded-full' : ''
 })
 
-const iconLeftClass = computed<Record<string, boolean> | string>(() => {
-  if (iconOnly.value) {
-    return 'h-5 w-5'
-  }
-
+const iconLeftClass = computed(() => {
   return {
-    '-ms-0.5 me-1.5 h-4 w-4': props.size == 'sm' || props.size === 'xs',
-    '-ms-1 me-2 h-4.5 w-4.5': props.size === 'md',
-    '-ms-1 me-2 h-5 w-5': props.size === 'lg' || props.size === 'xl',
+    '-ml-0.5 mr-2 h-4 w-4': props.size == 'sm',
+    '-ml-1 mr-2 h-5 w-5': props.size === 'md',
+    '-ml-1 mr-3 h-5 w-5': props.size === 'lg' || props.size === 'xl',
   }
 })
 
-const iconVariantClass = computed<Record<string, boolean>>(() => {
+const iconVariantClass = computed(() => {
   return {
-    'text-on-primary': props.variant === 'primary' || props.variant === 'danger',
-    'text-primary-600': props.variant === 'secondary',
-    'text-muted': props.variant === 'white' || props.variant === 'primary-outline' || props.variant === 'gray',
+    'text-white': props.variant === 'primary',
+    'text-primary-700': props.variant === 'secondary',
+    'text-gray-700': props.variant === 'white',
+    'text-gray-400': props.variant === 'gray',
   }
 })
 
-const iconRightClass = computed<Record<string, boolean> | string>(() => {
-  if (iconOnly.value) {
-    return 'h-5 w-5'
-  }
-
+const iconRightClass = computed(() => {
   return {
-    'ms-1.5 -me-0.5 h-4 w-4': props.size == 'sm' || props.size === 'xs',
-    'ms-2 -me-1 h-4.5 w-4.5': props.size === 'md',
-    'ms-2 -me-1 h-5 w-5': props.size === 'lg' || props.size === 'xl',
+    'ml-2 -mr-0.5 h-4 w-4': props.size == 'sm',
+    'ml-2 -mr-1 h-5 w-5': props.size === 'md',
+    'ml-3 -mr-1 h-5 w-5': props.size === 'lg' || props.size === 'xl',
   }
 })
 </script>
@@ -138,7 +129,7 @@ const iconRightClass = computed<Record<string, boolean> | string>(() => {
 <template>
   <BaseContentPlaceholders
     v-if="contentLoading"
-    class="disabled pointer-events-none"
+    class="disabled cursor-normal pointer-events-none"
   >
     <BaseContentPlaceholdersBox
       :rounded="true"
@@ -151,15 +142,13 @@ const iconRightClass = computed<Record<string, boolean> | string>(() => {
     v-else
     :tag="tag"
     :disabled="disabled"
-    :data-icon-only="iconOnly ? '' : undefined"
     :class="[defaultClass, sizeClass, variantClass, roundedClass]"
   >
     <SpinnerIcon v-if="loading" :class="[iconLeftClass, iconVariantClass]" />
 
-    <slot v-else name="left" :class="[iconLeftClass, iconVariantClass]"></slot>
+    <slot v-else name="left" :class="iconLeftClass"></slot>
 
-    <span v-if="iconOnly" class="sr-only"><slot /></span>
-    <slot v-else />
+    <slot />
 
     <slot name="right" :class="[iconRightClass, iconVariantClass]"></slot>
   </BaseCustomTag>

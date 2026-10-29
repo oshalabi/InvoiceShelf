@@ -1,28 +1,25 @@
-<script setup lang="ts">
-
-interface Props {
-  title: string
-  description: string
-}
-
-defineProps<Props>()
-</script>
-
 <template>
-  <!-- On phones a card's Save spans the card, in thumb reach and easy to hit -->
-  <BaseCard class="max-md:[&_button[type=submit]]:w-full">
-    <div class="flex flex-col gap-4 mb-6 md:flex-row md:items-start md:justify-between">
-      <div class="min-w-0">
-        <h2 class="font-semibold text-start text-section text-heading">
+  <BaseCard>
+    <div class="flex flex-wrap justify-between lg:flex-nowrap mb-5">
+      <div>
+        <h6 class="font-medium text-lg text-left">
           {{ title }}
-        </h2>
+        </h6>
 
-        <p class="mt-1 text-sm text-start text-muted max-w-[680px]">
+        <p
+          class="
+            mt-2
+            text-sm
+            leading-snug
+            text-left text-gray-500
+            max-w-[680px]
+          "
+        >
           {{ description }}
         </p>
       </div>
 
-      <div v-if="$slots.action" class="shrink-0">
+      <div class="mt-4 lg:mt-0 lg:ml-2">
         <slot name="action" />
       </div>
     </div>
@@ -30,3 +27,16 @@ defineProps<Props>()
     <slot />
   </BaseCard>
 </template>
+
+<script setup>
+defineProps({
+  title: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+    required: true,
+  },
+})
+</script>

@@ -1,8 +1,3 @@
-{{-- Inset lives on this div, not on the table: the table sets
-     border-collapse: collapse, and padding does not apply to a table in
-     that mode. dompdf applies it anyway, Chromium follows the spec. The hr
-     and the totals block below carry their own insets already. --}}
-<div class="items-table-inset">
 <table width="100%" class="items-table" cellspacing="0" border="0">
     <tr class="item-table-heading-row">
         <th width="2%" class="pr-20 text-right item-table-heading">#</th>
@@ -40,7 +35,7 @@
             </td>
             @foreach($customFields as $field)
                 <td class="text-right item-cell" style="vertical-align: top;">
-                    {{ $item->getFormattedCustomFieldValueBySlug($field->slug) }}
+                    {{ $item->getCustomFieldValueBySlug($field->slug) }}
                 </td>
             @endforeach
             <td
@@ -91,7 +86,6 @@
         @endphp
     @endforeach
 </table>
-</div>
 
 <hr class="item-cell-table-hr">
 
@@ -186,43 +180,15 @@
             </td>
         </tr>
 
-        @php
-            // What settled the invoice is split between money and credit, because
-            // paid_status alone cannot tell them apart: a credited invoice reads as
-            // paid without a cent having been received. The credited figure is the
-            // negated sum of the credit notes (they store negative totals), and
-            // whatever the balance dropped by beyond that was actually paid.
-            //
-            // For an invoice with no credit notes this is the old expression: the
-            // credited figure is zero and "paid > 0" holds exactly when paid_status
-            // is PARTIALLY_PAID or PAID.
-            $creditedTotal = $invoice->relationLoaded('creditNotes') ? -(int) $invoice->creditNotes->sum('total') : 0;
-            $amountPaid = (int) $invoice->total - (int) $invoice->due_amount - $creditedTotal;
-        @endphp
-
-        @if($creditedTotal > 0)
-            <tr>
-                <td class="border-0 total-border-left total-table-attribute-label">
-                    @lang('pdf_amount_credited')
-                </td>
-                <td class="py-8 border-0 total-border-right item-cell total-table-attribute-value">
-                    {!! format_money_pdf($creditedTotal, $invoice->customer->currency)!!}
-                </td>
-            </tr>
-        @endif
-
-        @if($amountPaid > 0)
+        @if($invoice->paid_status === App\Models\Invoice::STATUS_PARTIALLY_PAID || $invoice->paid_status === App\Models\Invoice::STATUS_PAID)
             <tr>
                 <td class="border-0 total-border-left total-table-attribute-label">
                     @lang('pdf_amount_paid')
                 </td>
                 <td class="py-8 border-0 total-border-right item-cell total-table-attribute-value">
-                    {!! format_money_pdf($amountPaid, $invoice->customer->currency)!!}
+                    {!! format_money_pdf($invoice->total - $invoice->due_amount, $invoice->customer->currency)!!}
                 </td>
             </tr>
-        @endif
-
-        @if($creditedTotal > 0 || $amountPaid > 0)
             <tr>
                 <td class="border-0 total-border-left total-table-attribute-label">
                     @lang('pdf_amount_due')

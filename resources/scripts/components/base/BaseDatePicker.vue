@@ -10,10 +10,20 @@
   <div v-else :class="computedContainerClass" class="relative flex flex-row">
     <svg
       v-if="showCalendarIcon && !hasIconSlot"
-      aria-hidden="true"
       viewBox="0 0 20 20"
       fill="currentColor"
-      class="absolute z-10 w-4 h-4 -translate-y-1/2 cursor-pointer top-1/2 start-3 text-subtle"
+      class="
+        absolute
+        w-4
+        h-4
+        mx-2
+        my-2.5
+        text-sm
+        not-italic
+        font-black
+        text-gray-400
+        cursor-pointer
+      "
       @click="onClickDp"
     >
       <path
@@ -28,7 +38,7 @@
     <FlatPickr
       ref="dp"
       v-model="date"
-      v-bind="passthroughAttrs"
+      v-bind="$attrs"
       :disabled="disabled"
       :config="config"
       :class="[defaultInputClass, inputInvalidClass, inputDisabledClass]"
@@ -36,55 +46,90 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script type="text/babel" setup>
 import FlatPickr from 'vue-flatpickr-component'
 import 'flatpickr/dist/flatpickr.css'
-import type { CustomLocale, Locale } from 'flatpickr/dist/types/locale'
-import { computed, inject, reactive, watch, ref, useAttrs, useSlots } from 'vue'
-import { useCompanyStore } from '@/scripts/stores/company.store'
-import { useUserStore } from '@/scripts/stores/user.store'
-import { flatpickrLocale } from '@/scripts/utils/flatpickr-locale'
-import { useFormField } from '@/scripts/composables/use-form-field'
-import { DIALOG_LAYER } from '@/scripts/utils/dialog-layers'
+import { Arabic } from 'flatpickr/dist/l10n/ar.js'
+import { Czech } from 'flatpickr/dist/l10n/cs.js'
+import { German } from 'flatpickr/dist/l10n/de.js'
+import { Greek } from 'flatpickr/dist/l10n/gr.js'
+import { english } from 'flatpickr/dist/l10n/default.js'
+import { Spanish } from 'flatpickr/dist/l10n/es.js'
+import { Persian } from 'flatpickr/dist/l10n/fa.js'
+import { Finnish } from 'flatpickr/dist/l10n/fi.js'
+import { French } from 'flatpickr/dist/l10n/fr.js'
+import { Hindi } from 'flatpickr/dist/l10n/hi.js'
+import { Croatian } from 'flatpickr/dist/l10n/hr.js'
+import { Indonesian } from 'flatpickr/dist/l10n/id.js'
+import { Italian } from 'flatpickr/dist/l10n/it.js'
+import { Japanese } from 'flatpickr/dist/l10n/ja.js'
+import { Korean } from 'flatpickr/dist/l10n/ko.js'
+import { Lithuanian } from 'flatpickr/dist/l10n/lt.js'
+import { Latvian } from 'flatpickr/dist/l10n/lv.js'
+import { Dutch } from 'flatpickr/dist/l10n/nl.js'
+import { Polish } from 'flatpickr/dist/l10n/pl.js'
+import { Portuguese } from 'flatpickr/dist/l10n/pt.js'
+import { Romanian } from 'flatpickr/dist/l10n/ro.js'
+import { Russian } from 'flatpickr/dist/l10n/ru.js'
+import { Slovak } from 'flatpickr/dist/l10n/sk.js'
+import { Slovenian } from 'flatpickr/dist/l10n/sl.js'
+import { Serbian } from 'flatpickr/dist/l10n/sr.js'
+import { Swedish } from 'flatpickr/dist/l10n/sv.js'
+import { Thai } from 'flatpickr/dist/l10n/th.js'
+import { Turkish } from 'flatpickr/dist/l10n/tr.js'
+import { Vietnamese } from 'flatpickr/dist/l10n/vn.js'
+import { Mandarin } from 'flatpickr/dist/l10n/zh.js'
+import { computed, reactive, watch, ref, useSlots } from 'vue'
+import { useCompanyStore } from '@/scripts/admin/stores/company'
+import { useUserStore } from '@/scripts/admin/stores/user'
 
-interface FlatPickrInstance {
-  fp: { open: () => void; altInput?: HTMLInputElement }
-}
+const dp = ref(null)
 
-const dp = ref<FlatPickrInstance | null>(null)
-
-interface Props {
-  modelValue?: string | Date
-  contentLoading?: boolean
-  placeholder?: string | null
-  invalid?: boolean
-  enableTime?: boolean
-  disabled?: boolean
-  showCalendarIcon?: boolean
-  containerClass?: string
-  defaultInputClass?: string
-  time24hr?: boolean
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  modelValue: () => new Date(),
-  contentLoading: false,
-  placeholder: null,
-  invalid: false,
-  enableTime: false,
-  disabled: false,
-  showCalendarIcon: true,
-  containerClass: '',
-  defaultInputClass:
-    'font-base ps-9 py-2 outline-hidden block w-full md:text-sm tabular field-border rounded-lg text-heading',
-  time24hr: false,
+const props = defineProps({
+  modelValue: {
+    type: [String, Date],
+    default: () => new Date(),
+  },
+  contentLoading: {
+    type: Boolean,
+    default: false,
+  },
+  placeholder: {
+    type: String,
+    default: null,
+  },
+  invalid: {
+    type: Boolean,
+    default: false,
+  },
+  enableTime: {
+    type: Boolean,
+    default: false,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  showCalendarIcon: {
+    type: Boolean,
+    default: true,
+  },
+  containerClass: {
+    type: String,
+    default: '',
+  },
+  defaultInputClass: {
+    type: String,
+    default:
+      'font-base pl-8 py-2 outline-hidden focus:ring-primary-400 focus:outline-hidden focus:border-primary-400 block w-full sm:text-sm border-gray-200 rounded-md text-black',
+  },
+  time24hr: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-interface Emits {
-  (e: 'update:modelValue', value: string | Date): void
-}
-
-const emit = defineEmits<Emits>()
+const emit = defineEmits(['update:modelValue'])
 
 const slots = useSlots()
 
@@ -92,116 +137,164 @@ const companyStore = useCompanyStore()
 
 const userStore = useUserStore()
 
-// Localize Flatpicker
-const fpLocale = flatpickrLocale(userStore.currentUserSettings.language)
-
-interface FlatPickrConfig {
-  altInput: boolean
-  enableTime: boolean
-  time_24hr: boolean
-  locale: CustomLocale | Locale
-  altFormat?: string
-  static?: boolean
-  onReady: Array<(dates: Date[], value: string, instance: { altInput?: HTMLInputElement }) => void>
+//Localize Flatpicker stuff
+const lang = userStore.currentUserSettings.language
+let fpLocale = null
+switch(lang){
+  case 'ar':
+    fpLocale = Arabic;
+    break;
+  case 'cs':
+    fpLocale = Czech;
+    break;
+  case 'de':
+    fpLocale = German;
+    break;
+  case 'el':
+    fpLocale = Greek;
+    break;
+  case 'en':
+    fpLocale = english;
+    break;
+  case 'es':
+    fpLocale = Spanish;
+    break;
+  case 'fa':
+    fpLocale = Persian;
+    break;
+  case 'fi':
+    fpLocale = Finnish;
+    break;
+  case 'fr':
+    fpLocale = French;
+    break;
+  case 'hi':
+    fpLocale = Hindi;
+    break;
+  case 'hr':
+    fpLocale = Croatian;
+    break;
+  case 'id':
+    fpLocale = Indonesian;
+    break;
+  case 'it':
+    fpLocale = Italian;
+    break;
+  case 'ja':
+    fpLocale = Japanese;
+    break;
+  case 'ko':
+    fpLocale = Korean;
+    break;
+  case 'lt':
+    fpLocale = Lithuanian;
+    break;
+  case 'lv':
+    fpLocale = Latvian;
+    break;
+  case 'nl':
+    fpLocale = Dutch;
+    break;
+  case 'pl':
+    fpLocale = Polish;
+    break;
+  case 'pt':
+  case 'pt_BR':
+    fpLocale = Portuguese;
+    break;
+  case 'ro':
+    fpLocale = Romanian;
+    break;
+  case 'ru':
+    fpLocale = Russian;
+    break;
+  case 'sk':
+    fpLocale = Slovak;
+    break;
+  case 'sl':
+    fpLocale = Slovenian;
+    break;
+  case 'sr':
+    fpLocale = Serbian;
+    break;
+  case 'sv':
+    fpLocale = Swedish;
+    break;
+  case 'th':
+    fpLocale = Thai;
+    break;
+  case 'tr':
+    fpLocale = Turkish;
+    break;
+  case 'vi':
+    fpLocale = Vietnamese;
+    break;
+  case 'zh':
+    fpLocale = Mandarin;
+    break;
+  default:
+    fpLocale = english;
 }
 
-const attrs = useAttrs()
-const { attrs: fieldAttrs } = useFormField({ invalid: () => props.invalid })
-
-// The id and ARIA attributes belong on the visible copy only (see below)
-const passthroughAttrs = computed(() => Object.fromEntries(
-  Object.entries(attrs).filter(([key]) => key !== 'id' && !key.startsWith('aria-')),
-))
-
-/**
- * flatpickr hides the real input and shows a copy (its alt input) formatted
- * for people. The copy is the one users focus, so the label, description and
- * state go on it.
- */
-function applyFieldAttrs(input?: HTMLInputElement): void {
-  if (!input) {
-    return
-  }
-
-  const passed = Object.fromEntries(
-    Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')),
-  )
-
-  for (const [key, value] of Object.entries({ ...fieldAttrs.value, ...passed })) {
-    if (value === undefined || value === null || value === false) {
-      input.removeAttribute(key)
-    } else {
-      input.setAttribute(key, String(value))
-    }
-  }
-}
-
-const config = reactive<FlatPickrConfig>({
+let config = reactive({
   altInput: true,
-  // Inside a dialog the calendar opens in place, within its focus trap
-  static: inject(DIALOG_LAYER, null) !== null,
   enableTime: props.enableTime,
   time_24hr: props.time24hr,
-  locale: fpLocale,
-  onReady: [(_dates, _value, instance) => applyFieldAttrs(instance.altInput)],
+  locale: fpLocale
 })
 
-watch(fieldAttrs, () => applyFieldAttrs(dp.value?.fp?.altInput))
-
-const date = computed<string | Date>({
+const date = computed({
   get: () => props.modelValue,
-  set: (value: string | Date) => {
+  set: (value) => {
     emit('update:modelValue', value)
   },
 })
 
-const carbonFormat = computed<string | undefined>(() => {
+const carbonFormat = computed(() => {
   return companyStore.selectedCompanySettings?.carbon_date_format
 })
 
-const carbonFormatWithTime = computed<string>(() => {
-  let format: string =
-    companyStore.selectedCompanySettings?.carbon_date_format ?? ''
+const carbonFormatWithTime = computed(() => {
+  let format = companyStore.selectedCompanySettings?.carbon_date_format
   if (companyStore.selectedCompanySettings?.invoice_use_time === 'YES') {
-    format +=
-      ' ' + (companyStore.selectedCompanySettings?.carbon_time_format ?? '')
+    format += ' ' + companyStore.selectedCompanySettings?.carbon_time_format
   }
-  return format.replace('g', 'h').replace('a', 'K')
+  return format.replace("g", "h").replace("a", "K");
 })
 
-const hasIconSlot = computed<boolean>(() => {
+const hasIconSlot = computed(() => {
   return !!slots.icon
 })
 
-const computedContainerClass = computed<string>(() => {
-  const containerClass = `${props.containerClass} `
+const computedContainerClass = computed(() => {
+  let containerClass = `${props.containerClass} `
 
   return containerClass
 })
 
-const inputInvalidClass = computed<string>(() => {
+const inputInvalidClass = computed(() => {
   if (props.invalid) {
-    return 'border-danger focus:border-danger focus:ring-danger/20'
+    return 'border-red-400 ring-red-400 focus:ring-red-400 focus:border-red-400'
   }
 
   return ''
 })
 
-const inputDisabledClass = computed<string>(() => {
+const inputDisabledClass = computed(() => {
   if (props.disabled) {
-    return 'border border-solid rounded-lg outline-hidden placeholder-subtle bg-surface-secondary text-muted border-line-light cursor-not-allowed'
+    return 'border border-solid rounded-md outline-hidden input-field box-border-2 base-date-picker-input placeholder-gray-400 bg-gray-200 text-gray-600 border-gray-200'
   }
 
   return ''
 })
 
-function onClickDp(): void {
-  dp.value?.fp.open()
+function onClickDp(params) {
+  dp.value.fp.open()
 }
 
 watch(
   () => props.enableTime,
-  () => {
+  (val) => {
     if (props.enableTime) {
       config.enableTime = props.enableTime
     }

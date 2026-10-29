@@ -5,8 +5,8 @@ namespace App\Support;
 /**
  * Recomputes authoritative invoice/estimate/recurring-invoice totals from the
  * submitted line items + document-level discount/taxes, mirroring the
- * front-end calculation (resources/scripts admin invoice store +
- * CreateItemRow).
+ * front-end calculation (resources/scripts/admin/stores/invoice.js and
+ * components/estimate-invoice-common/CreateItemRow.vue).
  *
  * The client-supplied total / sub_total / tax / due_amount are NOT trusted
  * (GHSA-8c69) — only price, quantity, discounts and tax-line amounts are.
@@ -15,8 +15,8 @@ namespace App\Support;
 class DocumentTotals
 {
     /**
-     * @param  array  $items  each item: price, quantity, discount_val?, taxes?[{tax_type_id, amount, compound_tax?}]
-     * @param  array  $taxes  document-level taxes: [{amount, compound_tax?}, ...]
+     * @param  array  $items  each item: price, quantity, discount_val?, taxes?[{amount}]
+     * @param  array  $taxes  document-level taxes: [{amount}, ...]
      * @return array{sub_total:int, tax:int, total:int}
      */
     public static function compute(array $items, array $taxes, $discountVal, $taxPerItem, bool $taxIncluded, $discountPerItem = 'NO'): array
@@ -25,28 +25,18 @@ class DocumentTotals
         $perItemTax = is_string($taxPerItem) && strtoupper(trim($taxPerItem)) === 'YES';
 
         $subTotal = 0;
-        $itemSimpleTaxTotal = 0;
-        $itemCompoundTaxTotal = 0;
+        $itemTaxTotal = 0;
 
         foreach ($items as $item) {
             $subTotal += self::itemTotal($item, $perItemDiscount);
-            $itemSimpleTaxTotal += self::sumTaxAmounts($item['taxes'] ?? [], false, true);
-            $itemCompoundTaxTotal += self::sumTaxAmounts($item['taxes'] ?? [], true, true);
+            $itemTaxTotal += self::sumTaxAmounts($item['taxes'] ?? []);
         }
 
         $subtotalWithDiscount = $subTotal - (int) round((float) $discountVal);
 
-        $simpleTaxTotal = $perItemTax
-            ? $itemSimpleTaxTotal
-            : self::sumTaxAmounts($taxes, false);
-        $compoundTaxTotal = $perItemTax
-            ? $itemCompoundTaxTotal
-            : self::sumTaxAmounts($taxes, true);
-        $totalTax = $simpleTaxTotal + $compoundTaxTotal;
+        $totalTax = $perItemTax ? $itemTaxTotal : self::sumTaxAmounts($taxes);
 
-        $total = $taxIncluded
-            ? $subtotalWithDiscount + $compoundTaxTotal
-            : $subtotalWithDiscount + $totalTax;
+        $total = $taxIncluded ? $subtotalWithDiscount : $subtotalWithDiscount + $totalTax;
 
         return [
             'sub_total' => $subTotal,
@@ -68,26 +58,13 @@ class DocumentTotals
         return (int) round($price * $quantity) - $discount;
     }
 
-    protected static function sumTaxAmounts(array $taxes, bool $compoundTax, bool $ignorePlaceholders = false): int
+    protected static function sumTaxAmounts(array $taxes): int
     {
         $sum = 0;
         foreach ($taxes as $tax) {
-            if ($ignorePlaceholders && empty($tax['tax_type_id'])) {
-                continue;
-            }
-
-            if (self::isCompoundTax($tax) !== $compoundTax) {
-                continue;
-            }
-
             $sum += (int) round((float) ($tax['amount'] ?? 0));
         }
 
         return $sum;
-    }
-
-    protected static function isCompoundTax(array $tax): bool
-    {
-        return filter_var($tax['compound_tax'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 }

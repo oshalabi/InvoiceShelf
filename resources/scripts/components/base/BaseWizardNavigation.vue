@@ -1,55 +1,9 @@
-<script setup lang="ts">
-
-interface Props {
-  currentStep?: number | null
-  steps?: number | null
-  containerClass?: string
-  progress?: string
-  currentStepClass?: string
-  nextStepClass?: string
-  previousStepClass?: string
-  iconClass?: string
-}
-
-interface Emits {
-  (e: 'click', index: number): void
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  currentStep: null,
-  steps: null,
-  containerClass: 'flex justify-between w-full my-10 max-w-xl mx-auto',
-  progress: 'rounded-full float-start w-6 h-6 border-4 cursor-pointer',
-  currentStepClass: 'bg-white border-primary-500',
-  nextStepClass: 'border-line-default bg-surface',
-  previousStepClass:
-    'bg-primary-500 border-primary-500 flex justify-center items-center',
-  iconClass:
-    'flex items-center justify-center w-full h-full text-sm font-black text-center text-white',
-})
-
-const emit = defineEmits<Emits>()
-
-function stepStyle(number: number): string[] {
-  if (props.currentStep === number) {
-    return [props.currentStepClass, props.progress]
-  }
-  if (props.currentStep !== null && props.currentStep > number) {
-    return [props.previousStepClass, props.progress]
-  }
-  if (props.currentStep !== null && props.currentStep < number) {
-    return [props.nextStepClass, props.progress]
-  }
-  return [props.progress]
-}
-</script>
-
 <template>
   <div
     :class="containerClass"
     class="
       relative
-      after:bg-surface-muted
+      after:bg-gray-200
       after:absolute
       after:transform
       after:top-1/2
@@ -58,22 +12,20 @@ function stepStyle(number: number): string[] {
       after:w-full
     "
   >
-    <button
+    <a
       v-for="(number, index) in steps"
       :key="index"
-      type="button"
       :class="stepStyle(index)"
-      class="z-10 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-      :aria-label="$t('general.step_of', { step: index + 1, count: steps ?? 0 })"
-      :aria-current="currentStep === index ? 'step' : undefined"
-      @click="$emit('click', index)"
+      class="z-10"
+      href="#"
+      @click.prevent="$emit('click', index)"
     >
       <svg
-        v-if="currentStep !== null && currentStep > index"
+        v-if="currentStep > index"
         :class="iconClass"
         fill="currentColor"
         viewBox="0 0 20 20"
-        aria-hidden="true"
+        @click="$emit('click', index)"
       >
         <path
           fill-rule="evenodd"
@@ -81,6 +33,68 @@ function stepStyle(number: number): string[] {
           clip-rule="evenodd"
         ></path>
       </svg>
-    </button>
+    </a>
   </div>
 </template>
+
+<script>
+export default {
+  props: {
+    currentStep: {
+      type: Number,
+      default: null,
+    },
+    steps: {
+      type: Number,
+      default: null,
+    },
+    containerClass: {
+      type: String,
+      default: 'flex justify-between w-full my-10 max-w-xl mx-auto',
+    },
+    progress: {
+      type: String,
+      default: 'rounded-full float-left w-6 h-6 border-4 cursor-pointer',
+    },
+    currentStepClass: {
+      type: String,
+      default: 'bg-white border-primary-500',
+    },
+    nextStepClass: {
+      type: String,
+      default: 'border-gray-200 bg-white',
+    },
+    previousStepClass: {
+      type: String,
+      default:
+        'bg-primary-500 border-primary-500 flex justify-center items-center',
+    },
+    iconClass: {
+      type: String,
+      default:
+        'flex items-center justify-center w-full h-full text-sm font-black text-center text-white',
+    },
+  },
+
+  emits: ['click'],
+
+  setup(props) {
+    function stepStyle(number) {
+      if (props.currentStep === number) {
+        return [props.currentStepClass, props.progress]
+      }
+      if (props.currentStep > number) {
+        return [props.previousStepClass, props.progress]
+      }
+      if (props.currentStep < number) {
+        return [props.nextStepClass, props.progress]
+      }
+      return [props.progress]
+    }
+
+    return {
+      stepStyle,
+    }
+  },
+}
+</script>

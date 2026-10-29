@@ -1,91 +1,83 @@
 <template>
-  <div class="relative flex items-start" :class="$attrs.class" :style="$attrs.style as StyleValue">
+  <div class="relative flex items-start">
     <div class="flex items-center h-5">
       <input
         :id="id"
         v-model="checked"
-        v-bind="controlAttrs"
-        :aria-describedby="description ? `${id}-description` : undefined"
+        v-bind="$attrs"
         :disabled="disabled"
         type="checkbox"
         :class="[checkboxClass, disabledClass]"
       />
     </div>
-    <div class="ms-3 text-sm">
+    <div class="ml-3 text-sm">
       <label
         v-if="label"
         :for="id"
         :class="`font-medium ${
-          disabled ? 'text-subtle cursor-not-allowed' : 'text-body'
+          disabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-600'
         } cursor-pointer `"
       >
         {{ label }}
       </label>
-      <p v-if="description" :id="`${id}-description`" class="text-muted">{{ description }}</p>
+      <p v-if="description" class="text-gray-500">{{ description }}</p>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed, useAttrs } from 'vue'
-import type { StyleValue } from 'vue'
+<script setup>
+import { computed } from 'vue'
 
-interface Props {
-  label?: string
-  description?: string
-  modelValue?: boolean | unknown[]
-  id?: number | string
-  disabled?: boolean
-  checkboxClass?: string
-  setInitialValue?: boolean
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  label: '',
-  description: '',
-  modelValue: false,
-  id: () => `check_${Math.random().toString(36).substr(2, 9)}`,
-  disabled: false,
-  checkboxClass: 'w-4 h-4 border-control-border rounded cursor-pointer',
-  setInitialValue: false,
+const props = defineProps({
+  label: {
+    type: String,
+    default: '',
+  },
+  description: {
+    type: String,
+    default: '',
+  },
+  modelValue: {
+    type: [Boolean, Array],
+    default: false,
+  },
+  id: {
+    type: [Number, String],
+    default: () => `check_${Math.random().toString(36).substr(2, 9)}`,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  checkboxClass: {
+    type: String,
+    default: 'w-4 h-4 border-gray-300 rounded cursor-pointer',
+  },
+  setInitialValue: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-interface Emits {
-  (e: 'update:modelValue', value: boolean | unknown[]): void
-  (e: 'change', value: boolean | unknown[]): void
-}
-
-const emit = defineEmits<Emits>()
-
-// Layout classes style the wrapper; everything else (aria-*, value, name)
-// belongs to the checkbox itself
-defineOptions({ inheritAttrs: false })
-
-const attrs = useAttrs()
-
-const controlAttrs = computed<Record<string, unknown>>(() => {
-  const { class: _class, style: _style, ...rest } = attrs
-
-  return rest
-})
+const emit = defineEmits(['update:modelValue', 'change'])
 
 if (props.setInitialValue) {
   emit('update:modelValue', props.modelValue)
 }
 
-const checked = computed<boolean | unknown[]>({
+const checked = computed({
   get: () => props.modelValue,
-  set: (value: boolean | unknown[]) => {
+  set: (value) => {
     emit('update:modelValue', value)
     emit('change', value)
   },
 })
 
-const disabledClass = computed<string>(() => {
+const disabledClass = computed(() => {
   if (props.disabled) {
-    return 'text-subtle cursor-not-allowed'
+    return 'text-gray-300 cursor-not-allowed'
   }
 
-  return 'text-btn-primary'
+  return 'text-primary-600 focus:ring-primary-500'
 })
 </script>

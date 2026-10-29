@@ -8,7 +8,7 @@ use Illuminate\Support\ServiceProvider;
 class ViewServiceProvider extends ServiceProvider
 {
     /**
-     * Register container bindings.
+     * Register services.
      */
     public function register(): void
     {
@@ -16,24 +16,14 @@ class ViewServiceProvider extends ServiceProvider
     }
 
     /**
-     * Hand every Blade view the branding values it may render.
-     *
-     * Each one is shared under the same name as the application setting it
-     * comes from, so the templates and the settings screen speak one
-     * vocabulary.
+     * Bootstrap services.
      */
     public function boot(): void
     {
-        $branding = [
-            'login_page_logo',
-            'login_page_heading',
-            'login_page_description',
-            'admin_page_title',
-            'copyright_text',
-        ];
-
-        foreach ($branding as $setting) {
-            View::share($setting, get_app_setting($setting));
-        }
+        View::share('login_page_logo', get_app_setting('login_page_logo'));
+        View::share('login_page_heading', get_app_setting('login_page_heading'));
+        View::share('login_page_description', get_app_setting('login_page_description'));
+        View::share('admin_page_title', get_app_setting('admin_page_title'));
+        View::share('copyright_text', get_app_setting('copyright_text'));
     }
 }

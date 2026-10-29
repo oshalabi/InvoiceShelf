@@ -1,27 +1,27 @@
 <template>
-  <!--
-    Announced through the live region in NotificationRoot, not from here.
-    Hover and focus both pause the timer.
-  -->
-  <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
   <div
+    :class="success || info ? 'bg-white' : 'bg-red-50'"
     class="
-      w-full max-w-sm mb-2.5 border rounded-xl pointer-events-auto
-      md:w-96 glass-strong
+      max-w-sm
+      mb-3
+      rounded-lg
+      shadow-lg
+      cursor-pointer
+      pointer-events-auto
+      w-full
+      md:w-96
     "
+    @click.stop="hideNotificationAction"
     @mouseenter="clearNotificationTimeOut"
     @mouseleave="setNotificationTimeOut"
-    @focusin="clearNotificationTimeOut"
-    @focusout="setNotificationTimeOut"
   >
-    <div class="overflow-hidden rounded-xl">
-      <div class="p-3.5">
+    <div class="overflow-hidden rounded-lg shadow-xs">
+      <div class="p-4">
         <div class="flex items-start">
           <div class="shrink-0">
             <svg
               v-if="success"
-              aria-hidden="true"
-              class="w-5 h-5 text-status-green"
+              class="w-6 h-6 text-green-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -35,8 +35,7 @@
             </svg>
             <svg
               v-if="info"
-              aria-hidden="true"
-              class="w-5 h-5 text-status-blue"
+              class="w-6 h-6 text-blue-400"
               fill="currentColor"
               viewBox="0 0 20 20"
               xmlns="http://www.w3.org/2000/svg"
@@ -48,24 +47,8 @@
               ></path>
             </svg>
             <svg
-              v-if="warning"
-              aria-hidden="true"
-              class="w-5 h-5 text-status-yellow"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-              />
-            </svg>
-            <svg
               v-if="error"
-              aria-hidden="true"
-              class="w-5 h-5 text-status-red"
+              class="w-6 h-6 text-red-400"
               fill="currentColor"
               viewBox="0 0 24 24"
             >
@@ -76,28 +59,54 @@
               />
             </svg>
           </div>
-          <div class="flex-1 w-0 ms-3 text-start">
+          <div class="flex-1 w-0 ml-3 text-left">
             <p
-              class="text-sm font-medium leading-5 text-heading"
+              :class="`text-sm leading-5 font-medium ${
+                success || info ? 'text-gray-900' : 'text-red-800'
+              }`"
             >
-              {{ title }}
+              {{
+                notification.title
+                  ? notification.title
+                  : success
+                  ? 'Success!'
+                  : 'Error'
+              }}
             </p>
             <p
-              class="mt-0.5 text-sm leading-5 text-muted"
+              :class="`mt-1 text-sm leading-5 ${
+                success || info ? 'text-gray-500' : 'text-red-700'
+              }`"
             >
-              {{ message }}
+              {{
+                notification.message
+                  ? notification.message
+                  : success
+                  ? 'Successful'
+                  : 'Something went wrong'
+              }}
             </p>
           </div>
           <div class="flex shrink-0">
             <button
-              type="button"
-              class="p-1 -m-1 transition-colors rounded-md text-muted hover:text-heading focus:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
-              :aria-label="$t('general.close')"
+              :class="
+                success || info
+                  ? ' text-gray-400 focus:text-gray-500'
+                  : 'text-red-400 focus:text-red-500'
+              "
+              class="
+                inline-flex
+                w-5
+                h-5
+                transition
+                duration-150
+                ease-in-out
+                focus:outline-hidden
+              "
               @click="hideNotificationAction"
             >
               <svg
-                aria-hidden="true"
-                class="w-4 h-4"
+                class="w-6 h-6"
                 fill="currentColor"
                 viewBox="0 0 20 20"
                 xmlns="http://www.w3.org/2000/svg"
@@ -116,71 +125,42 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup>
 import { onMounted, computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useNotificationStore } from '@/scripts/stores/notification.store'
-import { notificationMessage, notificationTitle } from './notification-text'
+import { useNotificationStore } from '@/scripts/stores/notification'
 
-export type NotificationType = 'success' | 'error' | 'warning' | 'info'
-
-export interface Notification {
-  id: string
-  type: NotificationType
-  title?: string
-  message?: string
-  time?: number
-}
-
-interface Props {
-  notification: Notification
-}
-
-const props = defineProps<Props>()
+const props = defineProps({
+  notification: {
+    type: Object,
+    default: null,
+  },
+})
 
 const notificationStore = useNotificationStore()
-const { t } = useI18n()
 
-const notiTimeOut = ref<ReturnType<typeof setTimeout> | null>(null)
+let notiTimeOut = ref('')
 
-const success = computed<boolean>(() => {
-  return props.notification.type === 'success'
+const success = computed(() => {
+  return props.notification.type == 'success'
 })
 
-const error = computed<boolean>(() => {
-  return props.notification.type === 'error'
+const error = computed(() => {
+  return props.notification.type == 'error'
 })
 
-const info = computed<boolean>(() => {
-  return props.notification.type === 'info'
+const info = computed(() => {
+  return props.notification.type == 'info'
 })
 
-const warning = computed<boolean>(() => {
-  return props.notification.type === 'warning'
-})
-
-const title = computed<string>(() => notificationTitle(props.notification, t))
-
-const message = computed<string>(() => notificationMessage(props.notification, t))
-
-function hideNotificationAction(): void {
+function hideNotificationAction() {
   notificationStore.hideNotification(props.notification)
 }
 
-function clearNotificationTimeOut(): void {
-  if (notiTimeOut.value) {
-    clearTimeout(notiTimeOut.value)
-  }
+function clearNotificationTimeOut() {
+  clearTimeout(notiTimeOut)
 }
 
-function setNotificationTimeOut(): void {
-  clearNotificationTimeOut()
-
-  // An error stays until it is dismissed: it may need reading twice
-  if (error.value && !props.notification.time) {
-    return
-  }
-
+function setNotificationTimeOut() {
   notiTimeOut.value = setTimeout(() => {
     notificationStore.hideNotification(props.notification)
   }, props.notification.time || 5000)

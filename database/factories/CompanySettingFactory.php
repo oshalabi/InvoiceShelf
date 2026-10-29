@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Domains\Accounts\Models\CompanySetting;
-use App\Domains\Accounts\Models\User;
+use App\Models\CompanySetting;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CompanySettingFactory extends Factory

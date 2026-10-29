@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Platform\Storage\Models\FileDisk;
+use App\Models\FileDisk;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class FileDiskFactory extends Factory
@@ -25,7 +25,7 @@ class FileDiskFactory extends Factory
             'set_as_default' => false,
             'credentials' => [
                 'driver' => 'local',
-                'root' => 'test-disks',
+                'root' => storage_path('app'),
             ],
 
         ];

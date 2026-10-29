@@ -5,21 +5,18 @@
         "framework",
         "laravel"
     ],
-    "license": "AGPL-3.0-only",
+    "license": "MIT",
     "type": "project",
     "require": {
         "php": "^8.4",
         "barryvdh/laravel-dompdf": "^v3.0",
-        "composer/semver": "^3.4",
         "dragonmantank/cron-expression": "^v3.4",
-        "gotenberg/gotenberg-php": "^2.23",
+        "gotenberg/gotenberg-php": "^2.8",
         "guzzlehttp/guzzle": "^7.9",
         "hashids/hashids": "^5.0",
-        "invoiceshelf/modules": "^3.6",
+        "invoiceshelf/modules": "^1.0.0",
         "laravel/framework": "^13.0",
         "laravel/helpers": "^1.7",
-        "laravel/mcp": "^1.0",
-        "laravel/passport": "^13.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "laravel/ui": "^4.6",
@@ -30,15 +27,11 @@
         "spatie/flysystem-dropbox": "^3.0",
         "spatie/laravel-backup": "^10.0",
         "spatie/laravel-medialibrary": "^11.11",
-        "symfony/http-client": "^7.3",
-        "symfony/intl": "^7.3",
         "symfony/mailer": "^7.3",
-        "symfony/mailgun-mailer": "^7.3",
-        "symfony/postmark-mailer": "^7.3"
+        "symfony/mailgun-mailer": "^7.3"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^3.5",
-        "dedoc/scramble": "^0.13.27",
         "fakerphp/faker": "^1.23",
         "jasonmccreary/laravel-test-assertions": "^2.9",
         "laravel/pint": "^1.13",
@@ -55,10 +48,11 @@
         "psr-4": {
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
-            "Database\\Seeders\\": "database/seeders/"
+            "Database\\Seeders\\": "database/seeders/",
+            "Modules\\": "Modules/"
         },
         "files": [
-            "app/Platform/Operations/helpers.php"
+            "app/Space/helpers.php"
         ]
     },
     "autoload-dev": {
@@ -67,8 +61,6 @@
         }
     },
     "scripts": {
-        "lint": "pint --test",
-        "lint:fix": "pint",
         "ai-docs": "@php bin/ai-docs.php",
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -88,7 +80,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan pail --timeout=0\" \"pnpm dev\" --names=server,queue,logs,vite"
+            "pnpm dlx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan pail --timeout=0\" \"pnpm dev\" --names=server,queue,logs,vite"
         ],
 	"ide-helper": [
             "@php artisan ide-helper:generate",
@@ -106,16 +98,9 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "php-http/discovery": true,
-            "wikimedia/composer-merge-plugin": false
+            "php-http/discovery": true
         }
     },
     "minimum-stability": "stable",
-    "prefer-stable": true,
-    "repositories": {
-        "invoiceshelf-modules": {
-            "type": "vcs",
-            "url": "https://github.com/InvoiceShelf/modules.git"
-        }
-    }
+    "prefer-stable": true
 }

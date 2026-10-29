@@ -1,0 +1,611 @@
+<?php
+
+namespace App\Models;
+
+use App\Http\Requests\RecurringInvoiceRequest;
+use App\Services\SerialNumberFormatter;
+use App\Support\DocumentTotals;
+use App\Support\MoneyConversion;
+use App\Support\PublicToken;
+use App\Support\SafeOrderBy;
+use App\Traits\HasCustomFieldsTrait;
+use Carbon\Carbon;
+use Cron;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
+use Throwable;
+
+class RecurringInvoice extends Model
+{
+    use HasCustomFieldsTrait;
+    use HasFactory;
+
+    protected $guarded = [
+        'id',
+    ];
+
+    protected $dates = [
+        'starts_at',
+    ];
+
+    public const NONE = 'NONE';
+
+    public const COUNT = 'COUNT';
+
+    public const DATE = 'DATE';
+
+    public const COMPLETED = 'COMPLETED';
+
+    public const ON_HOLD = 'ON_HOLD';
+
+    public const ACTIVE = 'ACTIVE';
+
+    protected $appends = [
+        'formattedCreatedAt',
+        'formattedStartsAt',
+        'formattedNextInvoiceAt',
+        'formattedLimitDate',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'exchange_rate' => 'float',
+            'send_automatically' => 'boolean',
+        ];
+    }
+
+    public function getFormattedStartsAtAttribute()
+    {
+        $dateFormat = CompanySetting::getSetting('carbon_date_format', $this->company_id);
+
+        return Carbon::parse($this->starts_at)->translatedFormat($dateFormat);
+    }
+
+    public function getFormattedNextInvoiceAtAttribute()
+    {
+        $dateFormat = CompanySetting::getSetting('carbon_date_format', $this->company_id);
+
+        return Carbon::parse($this->next_invoice_at)->translatedFormat($dateFormat);
+    }
+
+    public function getFormattedLimitDateAttribute()
+    {
+        $dateFormat = CompanySetting::getSetting('carbon_date_format', $this->company_id);
+
+        return Carbon::parse($this->limit_date)->format($dateFormat);
+    }
+
+    public function getFormattedCreatedAtAttribute()
+    {
+        $dateFormat = CompanySetting::getSetting('carbon_date_format', $this->company_id);
+
+        return Carbon::parse($this->created_at)->format($dateFormat);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function taxes(): HasMany
+    {
+        return $this->hasMany(Tax::class);
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'creator_id');
+    }
+
+    public function currency(): BelongsTo
+    {
+        return $this->belongsTo(Currency::class);
+    }
+
+    public function scopeWhereCompany($query)
+    {
+        $query->where('recurring_invoices.company_id', request()->header('company'));
+    }
+
+    public function scopePaginateData($query, $limit)
+    {
+        if ($limit == 'all') {
+            return $query->get();
+        }
+
+        return $query->paginate($limit);
+    }
+
+    public function scopeWhereOrder($query, $orderByField, $orderBy)
+    {
+        return SafeOrderBy::apply($query, $orderByField, $orderBy);
+    }
+
+    public function scopeWhereStatus($query, $status)
+    {
+        return $query->where('recurring_invoices.status', $status);
+    }
+
+    public function scopeWhereCustomer($query, $customer_id)
+    {
+        $query->where('customer_id', $customer_id);
+    }
+
+    public function scopeRecurringInvoicesStartBetween($query, $start, $end)
+    {
+        return $query->whereBetween(
+            'starts_at',
+            [$start->format('Y-m-d'), $end->format('Y-m-d')]
+        );
+    }
+
+    public function scopeWhereSearch($query, $search)
+    {
+        foreach (explode(' ', $search) as $term) {
+            $query->whereHas('customer', function ($query) use ($term) {
+                $query->where('name', 'LIKE', '%'.$term.'%')
+                    ->orWhere('contact_name', 'LIKE', '%'.$term.'%')
+                    ->orWhere('company_name', 'LIKE', '%'.$term.'%');
+            });
+        }
+    }
+
+    public function scopeApplyFilters($query, array $filters)
+    {
+        $filters = collect($filters);
+
+        if ($filters->get('status') && $filters->get('status') !== 'ALL') {
+            $query->whereStatus($filters->get('status'));
+        }
+
+        if ($filters->get('search')) {
+            $query->whereSearch($filters->get('search'));
+        }
+
+        if ($filters->get('from_date') && $filters->get('to_date')) {
+            $start = Carbon::createFromFormat('Y-m-d', $filters->get('from_date'));
+            $end = Carbon::createFromFormat('Y-m-d', $filters->get('to_date'));
+            $query->recurringInvoicesStartBetween($start, $end);
+        }
+
+        if ($filters->get('customer_id')) {
+            $query->whereCustomer($filters->get('customer_id'));
+        }
+
+        if ($filters->get('orderByField') || $filters->get('orderBy')) {
+            $field = $filters->get('orderByField') ? $filters->get('orderByField') : 'created_at';
+            $orderBy = $filters->get('orderBy') ? $filters->get('orderBy') : 'asc';
+            $query->whereOrder($field, $orderBy);
+        }
+    }
+
+    public static function createFromRequest(RecurringInvoiceRequest $request)
+    {
+        $recurringInvoice = self::create($request->getRecurringInvoicePayload());
+
+        $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
+
+        if ((string) $recurringInvoice['currency_id'] !== $company_currency) {
+            ExchangeRateLog::addExchangeRateLog($recurringInvoice);
+        }
+
+        self::createItems($recurringInvoice, $request->items);
+
+        if ($request->has('taxes') && (! empty($request->taxes))) {
+            self::createTaxes($recurringInvoice, $request->taxes);
+        }
+
+        if ($request->customFields) {
+            $recurringInvoice->addCustomFields($request->customFields);
+        }
+
+        return $recurringInvoice;
+    }
+
+    public function updateFromRequest(RecurringInvoiceRequest $request)
+    {
+        $data = $request->getRecurringInvoicePayload();
+
+        $this->update($data);
+
+        $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
+
+        if ((string) $data['currency_id'] !== $company_currency) {
+            ExchangeRateLog::addExchangeRateLog($this);
+        }
+
+        $this->items()->delete();
+        self::createItems($this, $request->items);
+
+        $this->taxes()->delete();
+        if ($request->has('taxes') && (! empty($request->taxes))) {
+            self::createTaxes($this, $request->taxes);
+        }
+
+        if ($request->customFields) {
+            $this->updateCustomFields($request->customFields);
+        }
+
+        return $this;
+    }
+
+    public static function createItems($recurringInvoice, $invoiceItems)
+    {
+        foreach ($invoiceItems as $invoiceItem) {
+            $invoiceItem['company_id'] = $recurringInvoice->company_id;
+            // Recompute the item total from price/quantity (GHSA-8c69).
+            $invoiceItem['total'] = DocumentTotals::itemTotal($invoiceItem, $recurringInvoice->discount_per_item === 'YES');
+            $invoiceItem['exchange_rate'] = $recurringInvoice->exchange_rate;
+            foreach (['price', 'discount_val', 'tax', 'total'] as $field) {
+                $invoiceItem['base_'.$field] = MoneyConversion::toBaseMinor($invoiceItem[$field] ?? 0, $recurringInvoice->exchange_rate);
+            }
+            $item = $recurringInvoice->items()->create($invoiceItem);
+            if (array_key_exists('taxes', $invoiceItem) && $invoiceItem['taxes']) {
+                foreach ($invoiceItem['taxes'] as $tax) {
+                    $tax['company_id'] = $recurringInvoice->company_id;
+                    $tax['exchange_rate'] = $recurringInvoice->exchange_rate;
+                    $tax['currency_id'] = $recurringInvoice->currency_id;
+                    $tax['base_amount'] = MoneyConversion::toBaseMinor($tax['amount'], $recurringInvoice->exchange_rate);
+                    if (gettype($tax['amount']) !== 'NULL') {
+                        $item->taxes()->create($tax);
+                    }
+                }
+            }
+        }
+    }
+
+    public static function createTaxes($recurringInvoice, $taxes)
+    {
+        foreach ($taxes as $tax) {
+            $tax['company_id'] = $recurringInvoice->company_id;
+            $tax['exchange_rate'] = $recurringInvoice->exchange_rate;
+            $tax['currency_id'] = $recurringInvoice->currency_id;
+            $tax['base_amount'] = MoneyConversion::toBaseMinor($tax['amount'], $recurringInvoice->exchange_rate);
+
+            if (gettype($tax['amount']) !== 'NULL') {
+                $recurringInvoice->taxes()->create($tax);
+            }
+        }
+    }
+
+    /**
+     * Bill the current occurrence and move the schedule on.
+     *
+     * Returns the new invoice, or null when nothing was billed because the
+     * schedule has not started or has reached its limit (it is then marked
+     * completed). The invoice is not mailed here: see sendAutomatically().
+     */
+    public function generateInvoice()
+    {
+        if (Carbon::now()->lessThan($this->starts_at)) {
+            return null;
+        }
+
+        $invoice = null;
+
+        if ($this->limit_by == 'DATE') {
+            $startDate = Carbon::today()->format('Y-m-d');
+
+            $endDate = $this->limit_date;
+
+            if ($endDate >= $startDate) {
+                $invoice = $this->createInvoice();
+
+                $this->updateNextInvoiceDate();
+            } else {
+                $this->markStatusAsCompleted();
+            }
+        } elseif ($this->limit_by == 'COUNT') {
+            $invoiceCount = Invoice::where('recurring_invoice_id', $this->id)->count();
+
+            if ($invoiceCount < $this->limit_count) {
+                $invoice = $this->createInvoice();
+
+                $this->updateNextInvoiceDate();
+            } else {
+                $this->markStatusAsCompleted();
+            }
+        } else {
+            $invoice = $this->createInvoice();
+
+            $this->updateNextInvoiceDate();
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Bill the schedule once if its next run has come.
+     *
+     * The due date on the row decides, not the minute the scheduler happens to
+     * wake up, so a cron that runs late or less often than every minute still
+     * bills. A gap bills one invoice, not one per missed occurrence, and the
+     * schedule moves on to its next run after now.
+     *
+     * The row is locked and re-read inside the transaction, so two schedulers
+     * running at once bill it once, and the invoice and the moved-on date are
+     * written together. Mail goes out after the commit: a mail failure is
+     * reported and leaves the invoice as a draft, instead of rolling it back
+     * and billing again on the next run.
+     */
+    public function generateDueInvoice()
+    {
+        $schedule = null;
+
+        $invoice = DB::transaction(function () use (&$schedule) {
+            $schedule = self::whereKey($this->id)->lockForUpdate()->first();
+
+            if (! $schedule || ! $schedule->isDue()) {
+                return null;
+            }
+
+            // Not started, or nothing owed: a stale date. Recount it rather
+            // than leave the schedule due on every run.
+            if (Carbon::now()->lessThan($schedule->starts_at) || ! $schedule->owesLatestOccurrence()) {
+                $schedule->updateNextInvoiceDate();
+
+                return null;
+            }
+
+            return $schedule->generateInvoice();
+        });
+
+        if ($invoice) {
+            try {
+                $schedule->sendAutomatically($invoice);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Whether the schedule still owes its latest occurrence: one that came
+     * after the schedule was created, with no invoice from the schedule since.
+     *
+     * Saving a schedule used to count its next run from the start date, which
+     * leaves a date in the past on schedules saved since. Billing by that date
+     * alone would bill a period again, or one from before the schedule existed.
+     */
+    public function owesLatestOccurrence()
+    {
+        $appZone = config('app.timezone', 'UTC');
+
+        $latest = (new Cron\CronExpression($this->frequency))
+            ->getPreviousRunDate(Carbon::now(), 0, true, $this->companyTimeZone() ?: $appZone);
+        $latest = Carbon::instance($latest)->setTimezone($appZone);
+
+        if ($this->created_at && $latest->lessThan($this->created_at)) {
+            return false;
+        }
+
+        return ! $this->invoices()->where('created_at', '>=', $latest)->exists();
+    }
+
+    /**
+     * Whether the schedule is active and its next run has come.
+     */
+    public function isDue()
+    {
+        return $this->status === self::ACTIVE
+            && $this->next_invoice_at !== null
+            && Carbon::parse($this->next_invoice_at)->lessThanOrEqualTo(Carbon::now());
+    }
+
+    public function createInvoice()
+    {
+        // get invoice_number
+        $serial = (new SerialNumberFormatter)
+            ->setModel(new Invoice)
+            ->setCompany($this->company_id)
+            ->setCustomer($this->customer_id)
+            ->setNextNumbers();
+
+        $days = intval(CompanySetting::getSetting('invoice_due_date_days', $this->company_id));
+
+        if (! $days || $days == 'null') {
+            $days = 7;
+        }
+
+        $newInvoice['creator_id'] = $this->creator_id;
+        $newInvoice['invoice_date'] = Carbon::today()->format('Y-m-d');
+        $newInvoice['due_date'] = Carbon::today()->addDays($days)->format('Y-m-d');
+        $newInvoice['status'] = Invoice::STATUS_DRAFT;
+        $newInvoice['company_id'] = $this->company_id;
+        $newInvoice['paid_status'] = Invoice::STATUS_UNPAID;
+        $newInvoice['sub_total'] = $this->sub_total;
+        $newInvoice['tax_per_item'] = $this->tax_per_item;
+        $newInvoice['discount_per_item'] = $this->discount_per_item;
+        $newInvoice['tax'] = $this->tax;
+        $newInvoice['total'] = $this->total;
+        $newInvoice['customer_id'] = $this->customer_id;
+        $newInvoice['currency_id'] = Customer::find($this->customer_id)->currency_id;
+        $newInvoice['template_name'] = $this->template_name;
+        $newInvoice['due_amount'] = $this->total;
+        $newInvoice['recurring_invoice_id'] = $this->id;
+        $newInvoice['discount_val'] = $this->discount_val;
+        $newInvoice['discount'] = $this->discount;
+        $newInvoice['discount_type'] = $this->discount_type;
+        $newInvoice['notes'] = $this->notes;
+        $newInvoice['exchange_rate'] = $this->exchange_rate;
+        $newInvoice['sales_tax_type'] = $this->sales_tax_type;
+        $newInvoice['sales_tax_address_type'] = $this->sales_tax_address_type;
+        $newInvoice['invoice_number'] = $serial->getNextNumber();
+        $newInvoice['sequence_number'] = $serial->nextSequenceNumber;
+        $newInvoice['customer_sequence_number'] = $serial->nextCustomerSequenceNumber;
+        $newInvoice['base_due_amount'] = MoneyConversion::toBaseMinor($newInvoice['due_amount'], $this->exchange_rate);
+        $newInvoice['base_discount_val'] = MoneyConversion::toBaseMinor($this->discount_val, $this->exchange_rate);
+        $newInvoice['base_sub_total'] = MoneyConversion::toBaseMinor($this->sub_total, $this->exchange_rate);
+        $newInvoice['base_tax'] = MoneyConversion::toBaseMinor($this->tax, $this->exchange_rate);
+        $newInvoice['base_total'] = MoneyConversion::toBaseMinor($this->total, $this->exchange_rate);
+        $invoice = Invoice::create($newInvoice);
+        $invoice->unique_hash = PublicToken::make();
+        $invoice->save();
+
+        $this->load('items.taxes');
+        Invoice::createItems($invoice, $this->items->toArray());
+
+        if ($this->taxes()->exists()) {
+            Invoice::createTaxes($invoice, $this->taxes->toArray());
+        }
+
+        if ($this->fields()->exists()) {
+            $customField = [];
+
+            foreach ($this->fields as $data) {
+                $customField[] = [
+                    'id' => $data->custom_field_id,
+                    'value' => $data->defaultAnswer,
+                ];
+            }
+
+            $invoice->addCustomFields($customField);
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Mail a generated invoice to the customer if the schedule asks for it.
+     */
+    public function sendAutomatically(Invoice $invoice)
+    {
+        if ($this->send_automatically != true) {
+            return;
+        }
+
+        $data = [
+            'body' => CompanySetting::getSetting('invoice_mail_body', $this->company_id),
+            'from' => config('mail.from.address'),
+            'to' => $this->customer->email,
+            'subject' => trans('invoices')['new_invoice'],
+            'invoice' => $invoice->toArray(),
+            'customer' => $invoice->customer->toArray(),
+            'company' => Company::find($invoice->company_id),
+        ];
+
+        $invoice->send($data);
+    }
+
+    public function markStatusAsCompleted()
+    {
+        if ($this->status == $this->status) {
+            $this->status = self::COMPLETED;
+            $this->save();
+        }
+    }
+
+    /**
+     * The moment a cron expression next fires after the given date.
+     *
+     * The expression is evaluated in the caller's time zone, which is the
+     * owning company's where one is known, because that is the zone the
+     * scheduler itself uses. The answer comes back in the application's zone.
+     */
+    public static function getNextInvoiceDate($frequency, $from, $timezone = null)
+    {
+        $appZone = config('app.timezone', 'UTC');
+        $zone = $timezone ?: $appZone;
+
+        $next = (new Cron\CronExpression($frequency))->getNextRunDate($from, 0, false, $zone);
+
+        return Carbon::instance($next)->setTimezone($appZone)->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Move the due date on to the next occurrence.
+     *
+     * Counted from now, not from starts_at: counting from the start date
+     * pinned this column to the first occurrence forever, so the date the
+     * schedule screen shows stopped being true the moment the first invoice
+     * was generated. A schedule that has not started yet counts from its
+     * start date instead, so it cannot read as due early.
+     */
+    public function updateNextInvoiceDate()
+    {
+        $this->next_invoice_at = self::getNextInvoiceDate(
+            $this->frequency,
+            $this->nextRunCountsFrom(),
+            $this->companyTimeZone()
+        );
+
+        $this->save();
+    }
+
+    /**
+     * The point the next occurrence is measured from: now, unless the
+     * schedule has a start date still in the future.
+     */
+    public function nextRunCountsFrom($from = null)
+    {
+        return self::runCountsFrom($this->starts_at, $from);
+    }
+
+    /**
+     * The same for a schedule that is not saved yet, from its start date.
+     */
+    public static function runCountsFrom($startsAt, $from = null)
+    {
+        $moment = Carbon::parse($from ?: Carbon::now());
+
+        if ($startsAt && Carbon::parse($startsAt)->greaterThan($moment)) {
+            $moment = Carbon::parse($startsAt);
+        }
+
+        return $moment->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * The time zone the owning company keeps its books in.
+     */
+    public function companyTimeZone()
+    {
+        $zone = CompanySetting::getSetting('time_zone', $this->company_id);
+
+        return $zone ?: null;
+    }
+
+    public static function deleteRecurringInvoice($ids)
+    {
+        foreach ($ids as $id) {
+            $recurringInvoice = self::find($id);
+
+            if ($recurringInvoice->invoices()->exists()) {
+                $recurringInvoice->invoices()->update(['recurring_invoice_id' => null]);
+            }
+
+            if ($recurringInvoice->items()->exists()) {
+                $recurringInvoice->items()->delete();
+            }
+
+            if ($recurringInvoice->taxes()->exists()) {
+                $recurringInvoice->taxes()->delete();
+            }
+
+            $recurringInvoice->delete();
+        }
+
+        return true;
+    }
+}

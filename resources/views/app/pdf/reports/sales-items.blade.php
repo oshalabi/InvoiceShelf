@@ -1,37 +1,211 @@
-@extends('app.pdf.reports.partials.layout')
+<!DOCTYPE html>
+<html lang="en">
 
-@section('report-title', __('pdf_item_sales_label'))
-@section('footer-label', __('pdf_total_sales_label'))
+<head>
+    <title>@lang('pdf_sales_items_label')</title>
+    <style type="text/css">
+        body {
+            font-family: "DejaVu Sans";
+        }
 
-{{-- Block form rather than the inline @section($name, $value) one: the inline
-     form escapes what it is given, and format_money_pdf() returns markup. --}}
-@section('footer-value'){!! format_money_pdf($totalAmount, $currency) !!}@endsection
+        table {
+            border-collapse: collapse;
+        }
 
-@section('report-body')
-    {{-- One table for every item, not one table per item: separate tables size
-         their columns independently, which is why the amounts used to wander. --}}
-    <div class="report-section">
-        <table class="report-table">
-            <thead>
+        .sub-container {
+            padding: 0px 20px;
+        }
+
+        .report-header {
+            width: 100%;
+        }
+
+        .heading-text {
+            font-weight: bold;
+            font-size: 24px;
+            color: #5851D8;
+            width: 100%;
+            text-align: left;
+            padding: 0px;
+            margin: 0px;
+        }
+
+        .heading-date-range {
+            font-weight: normal;
+            font-size: 15px;
+            color: #A5ACC1;
+            width: 100%;
+            text-align: right;
+            padding: 0px;
+            margin: 0px;
+        }
+
+        .sub-heading-text {
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            color: #595959;
+            padding: 0px;
+            margin: 0px;
+            margin-top: 30px;
+        }
+
+        .sales-items-title {
+            margin-top: 20px;
+            padding-left: 3px;
+            font-size: 16px;
+            line-height: 21px;
+            color: #040405;
+        }
+
+        .items-table-container {
+            padding-left: 10px;
+        }
+
+        .items-table {
+            width: 100%;
+            padding-bottom: 10px;
+        }
+
+        .item-title {
+            padding: 0px;
+            margin: 0px;
+            font-size: 14px;
+            line-height: 21px;
+            color: #595959;
+        }
+
+        .item-sales-amount {
+            padding: 0px;
+            margin: 0px;
+            font-size: 14px;
+            line-height: 21px;
+            text-align: right;
+            color: #595959;
+        }
+
+        .sales-total-indicator-table {
+            border-top: 1px solid #EAF1FB;
+            width: 100%;
+        }
+
+        .sales-total-cell {
+            padding-top: 10px;
+        }
+
+        .sales-total-amount {
+            padding-top: 10px;
+            padding-right: 30px;
+            padding: 0px;
+            margin: 0px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            text-align: right;
+            color: #040405;
+        }
+
+        .report-footer {
+            width: 100%;
+            margin-top: 40px;
+            padding: 15px 20px;
+            background: #F9FBFF;
+            box-sizing: border-box;
+        }
+
+        .report-footer-label {
+            padding: 0px;
+            margin: 0px;
+            text-align: left;
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 21px;
+            color: #595959;
+        }
+
+        .report-footer-value {
+            padding: 0px;
+            margin: 0px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 20px;
+            line-height: 21px;
+            color: #5851D8;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+    </style>
+
+    @if (App::isLocale('th'))
+    @include('app.pdf.locale.th')
+    @endif
+</head>
+
+<body>
+    <div class="sub-container">
+        <table class="report-header">
+            <tr>
+                <td>
+                    <p class="heading-text">{{ $company->name }}</p>
+                </td>
+                <td>
+                    <p class="heading-date-range">{{ $from_date }} - {{ $to_date }}</p>
+                </td>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <p class="sub-heading-text text-center">@lang('pdf_item_sales_label')</p>
+                </td>
+            </tr>
+        </table>
+
+        <p class="sales-items-title">@lang('pdf_items_label')</p>
+        @foreach ($items as $item)
+        <div class="items-table-container">
+            <table class="items-table">
                 <tr>
-                    <th>@lang('pdf_report_item_label')</th>
-                    <th class="report-amount report-col-count">@lang('pdf_quantity_label')</th>
-                    <th class="report-amount report-col-amount">@lang('pdf_amount_label')</th>
+                    <td>
+                        <p class="item-title">
+                            {{ $item->name }}
+                        </p>
+                    </td>
+                    <td>
+                        <p class="item-sales-amount">
+                            {!! format_money_pdf($item->total_amount, $currency) !!}
+                        </p>
+                    </td>
                 </tr>
-            </thead>
-            <tbody>
-                @forelse ($items as $item)
-                    <tr>
-                        <td>{{ $item->name }}</td>
-                        <td class="report-amount">{{ $item->total_quantity }}</td>
-                        <td class="report-amount">{!! format_money_pdf($item->total_amount, $currency) !!}</td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td class="report-muted" colspan="3">@lang('pdf_report_no_records')</td>
-                    </tr>
-                @endforelse
-            </tbody>
+            </table>
+        </div>
+        @endforeach
+
+        <table class="sales-total-indicator-table">
+            <tr>
+                <td class="sales-total-cell">
+                    <p class="sales-total-amount">
+                        {!! format_money_pdf($totalAmount, $currency) !!}
+                    </p>
+                </td>
+            </tr>
         </table>
     </div>
-@endsection
+
+
+    <table class="report-footer">
+        <tr>
+            <td>
+                <p class="report-footer-label">@lang('pdf_total_sales_label')</p>
+            </td>
+            <td>
+                <p class="report-footer-value">
+                    {!! format_money_pdf($totalAmount, $currency) !!}
+                </p>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

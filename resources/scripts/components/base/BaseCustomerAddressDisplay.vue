@@ -1,26 +1,7 @@
-<script setup lang="ts">
-import type { Address, Country } from '@/scripts/types/domain'
-
-interface DisplayAddress {
-  address_street_1?: string | null
-  address_street_2?: string | null
-  city?: string | null
-  state?: string | null
-  zip?: string | null
-  country?: Pick<Country, 'name'> | null
-}
-
-interface Props {
-  address: DisplayAddress
-}
-
-defineProps<Props>()
-</script>
-
 <template>
   <div
     v-if="address"
-    class="text-sm font-bold leading-5 text-heading non-italic space-y-1"
+    class="text-sm font-bold leading-5 text-black non-italic space-y-1"
   >
     <p v-if="address?.address_street_1">{{ address?.address_street_1 }},</p>
 
@@ -35,3 +16,12 @@ defineProps<Props>()
     <p v-if="address?.zip">{{ address?.zip }}.</p>
   </div>
 </template>
+
+<script setup>
+const props = defineProps({
+  address: {
+    type: Object,
+    required: true,
+  },
+})
+</script>

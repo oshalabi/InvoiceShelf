@@ -42,6 +42,8 @@ return [
             'root' => storage_path('app/public'),
             'url' => env('APP_URL').'/storage',
             'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
         ],
 
         's3' => [
@@ -61,7 +63,6 @@ return [
             'secret' => env('S3_COMPAT_SECRET'),
             'region' => env('S3_COMPAT_REGION'),
             'bucket' => env('S3_COMPAT_BUCKET'),
-            'root' => env('S3_COMPAT_ROOT'),
         ],
 
         'doSpaces' => [

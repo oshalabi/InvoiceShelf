@@ -1,27 +1,29 @@
 <template>
-  <TabsContent :value="value" :class="[tabPanelContainer, 'focus:outline-hidden']">
+  <TabPanel :class="[tabPanelContainer, 'focus:outline-hidden']">
+    <!-- focus:ring-1 focus:ring-jet focus:ring-opacity-60 -->
     <slot />
-  </TabsContent>
+  </TabPanel>
 </template>
 
-<script setup lang="ts">
-import { TabsContent } from 'reka-ui'
+<script setup>
+import { TabPanel } from '@headlessui/vue'
 
-withDefaults(
-  defineProps<{
-    title?: string | number
-    count?: string | number
-    countVariant?: string | number
-    tabPanelContainer?: string
-    /** Set by BaseTabGroup: the panel's position, which pairs it with its tab */
-    value?: number
-  }>(),
-  {
-    title: 'Tab',
-    count: '',
-    countVariant: '',
-    tabPanelContainer: 'pt-4 empty:hidden',
-    value: 0,
+const props = defineProps({
+  title: {
+    type: [String, Number],
+    default: 'Tab',
   },
-)
+  count: {
+    type: [String, Number],
+    default: '',
+  },
+  countVariant: {
+    type: [String, Number],
+    default: '',
+  },
+  tabPanelContainer: {
+    type: String,
+    default: 'py-4 mt-px',
+  },
+})
 </script>

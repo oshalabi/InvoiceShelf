@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Domains\Accounts\Models\User;
-use App\Domains\Catalog\Models\Unit;
+use App\Models\Unit;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class UnitFactory extends Factory
@@ -22,7 +22,6 @@ class UnitFactory extends Factory
     {
         return [
             'name' => $this->faker->name(),
-            'unit_code' => Unit::DEFAULT_UNIT_CODE,
             'company_id' => User::find(1)->companies()->first()->id,
         ];
     }

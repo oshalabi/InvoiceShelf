@@ -3,33 +3,33 @@
 namespace App\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Foundation\Support\Providers\RouteServiceProvider as FrameworkRouteServiceProvider;
+use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 
-class RouteServiceProvider extends FrameworkRouteServiceProvider
+class RouteServiceProvider extends ServiceProvider
 {
     /**
-     * Where a signed-in staff user lands.
+     * The path to the "home" route for your application.
      *
-     * The authentication layer redirects here once credentials check out.
+     * This is used by Laravel authentication to redirect users after login.
      *
      * @var string
      */
     public const HOME = '/admin/dashboard';
 
     /**
-     * Where a signed-in portal customer lands.
+     * The path to the "customer home" route for your application.
      *
-     * The customer guard redirects here once credentials check out.
+     * This is used by Laravel authentication to redirect customers after login.
      *
      * @var string
      */
     public const CUSTOMER_HOME = '/customer/dashboard';
 
     /**
-     * Install the throttling rules, then mount the route files.
+     * Define your route model bindings, pattern filters, etc.
      */
     public function boot(): void
     {
@@ -46,10 +46,12 @@ class RouteServiceProvider extends FrameworkRouteServiceProvider
     }
 
     /**
-     * Declare the named rate limiters this application offers.
+     * Configure the rate limiters for the application.
      */
     protected function configureRateLimiting(): void
     {
-        RateLimiter::for('api', fn (Request $request) => Limit::perMinute(60));
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60);
+        });
     }
 }

@@ -1,6 +1,3 @@
 <template>
-  <hr class="w-full border-line-light" />
+  <hr class="w-full text-gray-300" />
 </template>
-
-<script setup lang="ts">
-</script>

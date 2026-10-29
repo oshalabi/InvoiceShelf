@@ -12,15 +12,7 @@ return [
     |
     */
     'show_warnings' => false,   // Throw an Exception on warnings from dompdf
-
-    /*
-     * Note: this file predates the installed barryvdh/laravel-dompdf (v3.x),
-     * whose service provider builds options exclusively from `defines` below.
-     * A top-level `orientation` key used to sit here and was read by nothing.
-     * Page size, orientation and margins now come from `pdf.page` and are
-     * applied per render by DompdfDriver, so they are the same on both drivers.
-     */
-
+    'orientation' => 'portrait',
     'defines' => [
         /**
          * The location of the DOMPDF font directory
@@ -235,35 +227,12 @@ return [
          *
          * @var bool
          */
-        /*
-         * Defaults to false to match .env.example, which sets it explicitly and
-         * explains why. Fresh installs copy that file so they were already safe,
-         * but an install predating the line has no such entry and was falling
-         * back to true here -- the opposite of the documented intent.
-         */
         'enable_remote' => env('DOMPDF_ENABLE_REMOTE', false),
 
         /**
          * A ratio applied to the fonts height to be more like browsers' line height
-         *
-         * dompdf does not use a declared `line-height` directly: it scales it by
-         * the font's own height, so the rendered line box is
-         *
-         *     declared × (ascent + descent) / unitsPerEm × font_height_ratio
-         *
-         * The bundled Noto Sans reports 1.362 for that middle term, so at the
-         * stock 1.1 every line-height in every PDF came out 1.4985× what the CSS
-         * asked for. Chromium honours the declared value exactly, which is where
-         * the two drivers disagreed vertically on every document.
-         *
-         * 1 / 1.362 cancels the font term, so a declared line-height means what
-         * it says and both drivers agree. Measured: a declared 15px (11.25pt)
-         * renders at 16.86pt here at 1.1, 15.32pt at 1.0, and 11.25pt at this
-         * value -- identical to Chromium. Calibrated against Noto Sans, the
-         * default face; PdfLineHeightTest pins it so a font or dompdf upgrade
-         * that moves it fails rather than drifting.
          */
-        'font_height_ratio' => 0.7342,
+        'font_height_ratio' => 1.1,
 
         /**
          * Use the more-than-experimental HTML5 Lib parser

@@ -44,15 +44,12 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE') ?: storage_path('app/database.sqlite'),
+            'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            // Milliseconds a writer waits for a lock before "database is locked".
-            'busy_timeout' => (int) env('DB_BUSY_TIMEOUT', 5000),
-            // Opt-in: "wal" and "normal" suit a local disk (the managed cloud
-            // sets both); WAL is unsafe on network filesystems (NFS, SMB).
-            'journal_mode' => env('DB_JOURNAL_MODE'),
-            'synchronous' => env('DB_SYNCHRONOUS'),
+            'busy_timeout' => null,
+            'journal_mode' => null,
+            'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
         ],
 
